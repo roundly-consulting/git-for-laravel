@@ -6,12 +6,17 @@ namespace RoundlyConsulting\Git\Providers;
 
 use Closure;
 use GuzzleHttp\Psr7\Response as GuzzleResponse;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\LazyCollection;
+use RoundlyConsulting\Git\Batch\Batch;
+use RoundlyConsulting\Git\Batch\BatchError;
 use RoundlyConsulting\Git\Concerns\InteractsWithRateLimits;
+use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Comparison;
@@ -41,9 +46,12 @@ use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
+use RoundlyConsulting\Git\Exceptions\RateLimitExceededException;
 use RoundlyConsulting\Git\Http\ConditionalCache;
 use RoundlyConsulting\Git\Http\RateLimitStatusParser;
 use RoundlyConsulting\Git\Interfaces\Provider;
+use RoundlyConsulting\Git\Mapping\ResourceMapper;
+use RoundlyConsulting\Git\Webhooks\Webhooks;
 
 abstract class BaseProvider implements Provider
 {
@@ -59,6 +67,8 @@ abstract class BaseProvider implements Provider
     abstract protected function key(): string;
 
     abstract protected function cloneBaseUrl(): string;
+
+    abstract protected function mapper(): ResourceMapper;
 
     public function name(): string
     {
@@ -101,6 +111,57 @@ abstract class BaseProvider implements Provider
         return array_map(fn (Feature $feature): FeatureInfo => $feature->info(), $this->features());
     }
 
+    /**
+     * Every feature mapped to whether this provider supports it.
+     *
+     * @return array<string, bool>
+     */
+    public function capabilities(): array
+    {
+        $capabilities = [];
+
+        foreach (Feature::cases() as $feature) {
+            $capabilities[$feature->value] = $this->supports($feature);
+        }
+
+        return $capabilities;
+    }
+
+    public function supportsAll(Feature ...$features): bool
+    {
+        foreach ($features as $feature) {
+            if (! $this->supports($feature)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public function supportsAny(Feature ...$features): bool
+    {
+        foreach ($features as $feature) {
+            if ($this->supports($feature)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Every feature flagged supported/unsupported for this provider.
+     *
+     * @return list<FeatureInfo>
+     */
+    public function featureMatrix(): array
+    {
+        return array_map(
+            fn (Feature $feature): FeatureInfo => $feature->info($this->supports($feature)),
+            Feature::cases(),
+        );
+    }
+
     /** @return list<class-string<Credentials>> */
     public function authenticationMethods(): array
     {
@@ -124,6 +185,57 @@ abstract class BaseProvider implements Provider
     public function rateLimit(): ?RateLimitStatus
     {
         return $this->rateLimit;
+    }
+
+    public function batch(): Batch
+    {
+        return new Batch($this);
+    }
+
+    public function mapResource(): ResourceMapper
+    {
+        return $this->mapper();
+    }
+
+    public function repositoryUrl(string $path): string
+    {
+        $this->featureNotSupported();
+    }
+
+    public function languagesUrl(string $path): string
+    {
+        $this->featureNotSupported();
+    }
+
+    public function pullRequestUrl(string $path, int $number): string
+    {
+        $this->featureNotSupported();
+    }
+
+    /**
+     * @return array{0: string, 1: array<string, mixed>}
+     */
+    public function contentsRequest(string $path, string $filePath, ?string $ref = null): array
+    {
+        $this->featureNotSupported();
+    }
+
+    /**
+     * @param  array<string, mixed>  $raw
+     * @return array<string, int>
+     */
+    public function normalizeLanguages(array $raw): array
+    {
+        /** @var array<string, int> $languages */
+        $languages = array_map(fn (mixed $value): int => (int) $value, $raw);
+
+        return $languages;
+    }
+
+    /** @param array<string, mixed> $raw */
+    public function mapFileContent(array $raw): FileContent
+    {
+        $this->featureNotSupported();
     }
 
     public function repository(string $path): Repository
@@ -276,6 +388,17 @@ abstract class BaseProvider implements Provider
         $this->featureNotSupported();
     }
 
+    /** @return list<Webhook> */
+    public function listWebhooks(string $path): array
+    {
+        $this->featureNotSupported();
+    }
+
+    public function webhooks(string $path): Webhooks
+    {
+        return new Webhooks($this, $path);
+    }
+
     protected function buildCloneUrl(string $baseUrl, string $user, string $secret, string $path): string
     {
         $host = str($baseUrl)->after('://')->rtrim('/')->toString();
@@ -345,9 +468,136 @@ abstract class BaseProvider implements Provider
         return $this->applyAuthentication($request);
     }
 
+    /**
+     * Issue a concurrent pool of GET requests keyed by the caller's id.
+     *
+     * Each pooled request carries the same (refreshable) authentication as the
+     * single-request path. Pooled GETs bypass the ETag conditional cache. Input
+     * larger than `git.batch.concurrency` is chunked into sequential pools.
+     *
+     * @param  array<string, array{url: string, query: array<string, mixed>}>  $specs
+     * @return array<string, Response|BatchError>
+     */
+    public function runPool(array $specs): array
+    {
+        if ($specs === []) {
+            return [];
+        }
+
+        $concurrency = config('git.batch.concurrency');
+        $concurrency = is_int($concurrency) && $concurrency > 0 ? $concurrency : 25;
+
+        $outcomes = [];
+
+        foreach (array_chunk($specs, $concurrency, true) as $chunk) {
+            foreach ($this->resolveChunk($chunk) as $key => $outcome) {
+                $outcomes[$key] = $outcome;
+            }
+        }
+
+        return $outcomes;
+    }
+
+    /**
+     * @param  array<string, array{url: string, query: array<string, mixed>}>  $chunk
+     * @return array<string, Response|BatchError>
+     */
+    private function resolveChunk(array $chunk): array
+    {
+        // Account for every pooled request up front so client-side quota stays
+        // accurate. If the limiter trips, the remaining keys fail softly.
+        $allowed = [];
+        $limited = [];
+
+        foreach ($chunk as $key => $spec) {
+            if (! empty($limited)) {
+                $limited[$key] = $spec;
+
+                continue;
+            }
+
+            try {
+                $this->enforceRateLimit($this->key(), $this->rateLimitFromConfig($this->key()));
+                $allowed[$key] = $spec;
+            } catch (RateLimitExceededException) {
+                $limited[$key] = $spec;
+            }
+        }
+
+        $outcomes = [];
+
+        if ($allowed !== []) {
+            /** @var array<string, Response|ConnectionException> $responses */
+            $responses = Http::pool(function (Pool $pool) use ($allowed): array {
+                $requests = [];
+
+                foreach ($allowed as $key => $spec) {
+                    $query = $spec['query'] === [] ? '' : '?'.http_build_query($spec['query']);
+                    $requests[] = $this->poolRequest($pool->as((string) $key))->get($spec['url'].$query);
+                }
+
+                return $requests;
+            });
+
+            $lastSuccessful = null;
+
+            foreach ($responses as $key => $response) {
+                $key = (string) $key;
+
+                if ($response instanceof ConnectionException) {
+                    $outcomes[$key] = new BatchError($key, null, $response->getMessage());
+
+                    continue;
+                }
+
+                if ($response->failed()) {
+                    $outcomes[$key] = new BatchError($key, $response->status(), 'request failed');
+
+                    continue;
+                }
+
+                $outcomes[$key] = $response;
+                $lastSuccessful = $response;
+            }
+
+            if ($lastSuccessful !== null) {
+                $this->captureRateLimit($lastSuccessful);
+            }
+        }
+
+        foreach ($limited as $key => $spec) {
+            $outcomes[(string) $key] = new BatchError((string) $key, null, 'rate limited');
+        }
+
+        return $outcomes;
+    }
+
+    protected function poolRequest(PendingRequest $request): PendingRequest
+    {
+        /** @var array<string, mixed> $http */
+        $http = config("git.providers.{$this->key()}", []);
+
+        [$times, $backoff] = $this->retrySettings($http);
+
+        $request = $request->withOptions($this->options($http))
+            ->timeout(is_int($http['timeout'] ?? null) ? $http['timeout'] : 10)
+            ->retry($times, $backoff, throw: false)
+            ->baseUrl(is_string($http['url'] ?? null) ? $http['url'] : $this->providerName()->apiBaseUrl())
+            ->acceptJson()
+            ->asJson();
+
+        return $this->applyAuthentication($request);
+    }
+
     protected function applyAuthentication(PendingRequest $request): PendingRequest
     {
-        return $request->withToken($this->tokenValue());
+        $credential = $this->authentication;
+
+        $token = $credential instanceof RefreshableCredentials
+            ? $credential->accessToken()
+            : $this->tokenValue();
+
+        return $request->withToken($token);
     }
 
     protected function tokenValue(): string

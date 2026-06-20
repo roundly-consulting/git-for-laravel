@@ -4,15 +4,24 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Interfaces;
 
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\LazyCollection;
+use RoundlyConsulting\Git\Batch\Batch;
+use RoundlyConsulting\Git\Batch\BatchError;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
+use RoundlyConsulting\Git\Dto\FeatureInfo;
+use RoundlyConsulting\Git\Dto\FileContent;
+use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\Page;
 use RoundlyConsulting\Git\Dto\RateLimitStatus;
 use RoundlyConsulting\Git\Dto\Repository;
+use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\ProviderName;
+use RoundlyConsulting\Git\Mapping\ResourceMapper;
+use RoundlyConsulting\Git\Webhooks\Webhooks;
 
 interface Provider
 {
@@ -26,6 +35,53 @@ interface Provider
     public function features(): array;
 
     public function supports(Feature $feature): bool;
+
+    /** @return array<string, bool> */
+    public function capabilities(): array;
+
+    public function supportsAll(Feature ...$features): bool;
+
+    public function supportsAny(Feature ...$features): bool;
+
+    /** @return list<FeatureInfo> */
+    public function featureMatrix(): array;
+
+    public function batch(): Batch;
+
+    public function webhooks(string $path): Webhooks;
+
+    /**
+     * @param  array<string, array{url: string, query: array<string, mixed>}>  $specs
+     * @return array<string, Response|BatchError>
+     */
+    public function runPool(array $specs): array;
+
+    public function mapResource(): ResourceMapper;
+
+    public function repositoryUrl(string $path): string;
+
+    public function languagesUrl(string $path): string;
+
+    public function pullRequestUrl(string $path, int $number): string;
+
+    /** @return array{0: string, 1: array<string, mixed>} */
+    public function contentsRequest(string $path, string $filePath, ?string $ref = null): array;
+
+    /**
+     * @param  array<string, mixed>  $raw
+     * @return array<string, int>
+     */
+    public function normalizeLanguages(array $raw): array;
+
+    /** @param array<string, mixed> $raw */
+    public function mapFileContent(array $raw): FileContent;
+
+    public function createWebhook(string $path, NewWebhook $data): Webhook;
+
+    public function deleteWebhook(string $path, string $id): void;
+
+    /** @return list<Webhook> */
+    public function listWebhooks(string $path): array;
 
     /** @return list<class-string<Credentials>> */
     public function authenticationMethods(): array;

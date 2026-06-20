@@ -78,6 +78,14 @@ final class RegistryFake extends Registry
         Assert::assertSame([], $this->calls, 'Expected no provider calls, but some were recorded.');
     }
 
+    public function assertBatched(ProviderName $provider, string $method): void
+    {
+        Assert::assertTrue(
+            $this->wasSent($provider, "batch.{$method}"),
+            "Expected batch [{$method}] to be sent to [{$provider->label()}] but it was not."
+        );
+    }
+
     public function assertRepositoryCreated(string $name): void
     {
         $created = collect($this->calls)

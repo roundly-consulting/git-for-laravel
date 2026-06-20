@@ -33,6 +33,22 @@ return [
                     'X-GitHub-Api-Version' => env('GITHUB_API_VERSION', '2022-11-28'),
                 ],
             ],
+
+            // GitHub App authentication (self-refreshing installation tokens).
+            // When `id` is set, `Registry::github()` mints installation tokens
+            // automatically. `private_key` may be a PEM string or a file path.
+            'app' => [
+                'id' => env('GITHUB_APP_ID'),
+                'installation_id' => env('GITHUB_APP_INSTALLATION_ID'),
+                'private_key' => env('GITHUB_APP_PRIVATE_KEY'),
+            ],
+
+            // OAuth credentials (self-refreshing access tokens).
+            'oauth' => [
+                'client_id' => env('GITHUB_OAUTH_CLIENT_ID'),
+                'client_secret' => env('GITHUB_OAUTH_CLIENT_SECRET'),
+                'token_url' => env('GITHUB_OAUTH_TOKEN_URL', 'https://github.com/login/oauth/access_token'),
+            ],
         ],
 
         'gitlab' => [
@@ -53,6 +69,13 @@ return [
                 'headers' => [
                     'User-Agent' => env('GIT_USER_AGENT', env('APP_NAME', 'GitHttp/1.0')),
                 ],
+            ],
+
+            // OAuth credentials (self-refreshing access tokens).
+            'oauth' => [
+                'client_id' => env('GITLAB_OAUTH_CLIENT_ID'),
+                'client_secret' => env('GITLAB_OAUTH_CLIENT_SECRET'),
+                'token_url' => env('GITLAB_OAUTH_TOKEN_URL', 'https://gitlab.com/oauth/token'),
             ],
         ],
 
@@ -120,5 +143,18 @@ return [
         'enabled' => env('GIT_WEBHOOKS_ENABLED', false),
         'path' => env('GIT_WEBHOOKS_PATH', 'git/webhooks'),
         'middleware' => ['api'],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Concurrent batch fetches
+    |--------------------------------------------------------------------------
+    |
+    | Caps the size of each concurrent HTTP pool issued by `provider()->batch()`.
+    | Input lists larger than this are chunked into sequential pools.
+    |
+    */
+    'batch' => [
+        'concurrency' => env('GIT_BATCH_CONCURRENCY', 25),
     ],
 ];

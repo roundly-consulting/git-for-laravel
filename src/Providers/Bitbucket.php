@@ -22,6 +22,8 @@ use RoundlyConsulting\Git\Dto\PullRequest;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
+use RoundlyConsulting\Git\Mapping\BitbucketMapper;
+use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
 
 class Bitbucket extends BaseProvider
@@ -29,6 +31,11 @@ class Bitbucket extends BaseProvider
     protected function key(): string
     {
         return 'bitbucket';
+    }
+
+    protected function mapper(): ResourceMapper
+    {
+        return resolve(BitbucketMapper::class);
     }
 
     public function user(): Owner
@@ -39,6 +46,7 @@ class Bitbucket extends BaseProvider
             id: (string) $user['uuid'],
             name: $user['username'],
             avatar: $user['links']['avatar']['href'] ?? null,
+            raw: $user,
         );
     }
 
@@ -50,7 +58,7 @@ class Bitbucket extends BaseProvider
             query: ['role' => 'member'],
             page: 1,
             perPage: $perPage,
-            map: fn (array $repository): Repository => $this->createRepositoryDto($repository),
+            map: fn (array $repository): Repository => $this->mapper()->repository($repository),
             itemsKey: 'values',
         );
     }
@@ -63,14 +71,14 @@ class Bitbucket extends BaseProvider
             query: ['role' => 'member'],
             page: $page,
             perPage: $perPage,
-            map: fn (array $repository): Repository => $this->createRepositoryDto($repository),
+            map: fn (array $repository): Repository => $this->mapper()->repository($repository),
             itemsKey: 'values',
         ));
     }
 
     public function repository(string $path): Repository
     {
-        return $this->createRepositoryDto($this->get("/2.0/repositories/{$path}")->json());
+        return $this->mapper()->repository($this->get("/2.0/repositories/{$path}")->json());
     }
 
     /** @return Page<string> */
@@ -104,7 +112,7 @@ class Bitbucket extends BaseProvider
                 query: $query,
                 page: $page,
                 perPage: $perPage,
-                map: fn (array $commit): Commit => $this->createCommitDto($commit),
+                map: fn (array $commit): Commit => $this->mapper()->commit($commit),
                 itemsKey: 'values',
             );
         });
@@ -112,7 +120,7 @@ class Bitbucket extends BaseProvider
 
     public function commit(string $path, string $commit): Commit
     {
-        return $this->createCommitDto($this->get("/2.0/repositories/{$path}/commit/{$commit}")->json());
+        return $this->mapper()->commit($this->get("/2.0/repositories/{$path}/commit/{$commit}")->json());
     }
 
     /** @return Page<PullRequest> */
@@ -125,7 +133,7 @@ class Bitbucket extends BaseProvider
             query: ['state' => $this->mapState($state)],
             page: 1,
             perPage: $perPage,
-            map: fn (array $pr): PullRequest => $this->createPullRequestDto($pr),
+            map: fn (array $pr): PullRequest => $this->mapper()->pullRequest($pr),
             itemsKey: 'values',
         );
     }
@@ -134,7 +142,17 @@ class Bitbucket extends BaseProvider
     {
         $this->guardSupported(Feature::FindPullRequest);
 
-        return $this->createPullRequestDto($this->get("/2.0/repositories/{$path}/pullrequests/{$number}")->json());
+        return $this->mapper()->pullRequest($this->get("/2.0/repositories/{$path}/pullrequests/{$number}")->json());
+    }
+
+    public function repositoryUrl(string $path): string
+    {
+        return "/2.0/repositories/{$path}";
+    }
+
+    public function pullRequestUrl(string $path, int $number): string
+    {
+        return "/2.0/repositories/{$path}/pullrequests/{$number}";
     }
 
     public function createRepository(NewRepository $data): Repository
@@ -148,7 +166,7 @@ class Bitbucket extends BaseProvider
             'description' => $data->description,
         ]);
 
-        return $this->createRepositoryDto($response->json());
+        return $this->mapper()->repository($response->json());
     }
 
     public function createPullRequest(string $path, NewPullRequest $data): PullRequest
@@ -163,7 +181,7 @@ class Bitbucket extends BaseProvider
             'description' => $data->body,
         ]);
 
-        return $this->createPullRequestDto($response->json());
+        return $this->mapper()->pullRequest($response->json());
     }
 
     public function comment(string $path, NewComment $data): Comment
@@ -205,10 +223,12 @@ class Bitbucket extends BaseProvider
         $hook = $response->json();
 
         return new Webhook(
+            provider: $this->providerName(),
             id: (string) $hook['uuid'],
             url: $hook['url'] ?? $data->url,
             events: $data->events,
             active: (bool) ($hook['active'] ?? $data->active),
+            raw: $hook,
         );
     }
 
@@ -218,6 +238,25 @@ class Bitbucket extends BaseProvider
         $this->guardAuthenticated();
 
         $this->send('DELETE', "/2.0/repositories/{$path}/hooks/{$id}");
+    }
+
+    /** @return list<Webhook> */
+    public function listWebhooks(string $path): array
+    {
+        $this->guardSupported(Feature::ListWebhooks);
+        $this->guardAuthenticated();
+
+        /** @var list<array<string, mixed>> $hooks */
+        $hooks = $this->get("/2.0/repositories/{$path}/hooks")->json('values') ?? [];
+
+        return array_map(fn (array $hook): Webhook => new Webhook(
+            provider: $this->providerName(),
+            id: (string) $hook['uuid'],
+            url: $hook['url'] ?? '',
+            events: $hook['events'] ?? [],
+            active: (bool) ($hook['active'] ?? true),
+            raw: $hook,
+        ), $hooks);
     }
 
     public function cloneUrlForRepository(string $path, string $username, Credentials $credentials): string
@@ -261,6 +300,7 @@ class Bitbucket extends BaseProvider
             Feature::CreateComment,
             Feature::CreateWebhook,
             Feature::DeleteWebhook,
+            Feature::ListWebhooks,
         ];
     }
 
@@ -293,61 +333,5 @@ class Bitbucket extends BaseProvider
             'pull_request' => 'pullrequest:created',
             default => $event,
         }, $events);
-    }
-
-    /** @param array<string, mixed> $repository */
-    protected function createRepositoryDto(array $repository): Repository
-    {
-        return new Repository(
-            id: (string) $repository['uuid'],
-            path: $repository['full_name'],
-            name: str($repository['full_name'])->after('/')->toString(),
-            description: $repository['description'] ?? null,
-            defaultBranch: $repository['mainbranch']['name'],
-            owner: new Owner(
-                id: (string) $repository['owner']['uuid'],
-                name: $repository['owner']['username'],
-                avatar: $repository['owner']['links']['avatar']['href'] ?? null,
-            ),
-            createdAt: $createdAt = Carbon::parse($repository['created_on']),
-            lastActivityAt: $repository['updated_on'] ? Carbon::parse($repository['updated_on']) : $createdAt,
-        );
-    }
-
-    /** @param array<string, mixed> $commit */
-    protected function createCommitDto(array $commit): Commit
-    {
-        return new Commit(
-            sha: $commit['hash'],
-            message: $commit['message'],
-            author: new Author(
-                name: $commit['author']['user']['display_name'],
-                email: str($commit['author']['raw'])->between('<', '>')->toString(),
-                avatar: null,
-            ),
-            url: $commit['links']['html']['href'] ?? null,
-            commitAt: Carbon::parse($commit['date']),
-        );
-    }
-
-    /** @param array<string, mixed> $pr */
-    protected function createPullRequestDto(array $pr): PullRequest
-    {
-        return new PullRequest(
-            id: (string) $pr['id'],
-            number: (int) $pr['id'],
-            title: $pr['title'],
-            body: $pr['description'] ?? null,
-            state: $pr['state'],
-            sourceBranch: $pr['source']['branch']['name'] ?? '',
-            targetBranch: $pr['destination']['branch']['name'] ?? '',
-            author: isset($pr['author']) ? new Author(
-                name: $pr['author']['display_name'] ?? '',
-                email: '',
-                avatar: $pr['author']['links']['avatar']['href'] ?? null,
-            ) : null,
-            url: $pr['links']['html']['href'] ?? null,
-            createdAt: Carbon::parse($pr['created_on']),
-        );
     }
 }

@@ -6,6 +6,8 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\LazyCollection;
 use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Commit;
+use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
+use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
 use RoundlyConsulting\Git\Dto\Credentials\Password;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
 use RoundlyConsulting\Git\Dto\Owner;
@@ -36,12 +38,14 @@ it('throws exception when authenticating with an unsupported method', function (
 })->throws(
     InvalidCredentialsException::class,
     'Authentication with [Password] is not supported by provider [GitHub].'.
-    'Supported authentication methods are [Token].'
+    'Supported authentication methods are [Token, GithubAppToken, OauthToken].'
 );
 
 it('returns github auth methods', function () {
     expect(github()->authenticationMethods())->toBe([
         Token::class,
+        GithubAppToken::class,
+        OauthToken::class,
     ]);
 });
 

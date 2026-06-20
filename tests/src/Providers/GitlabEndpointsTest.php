@@ -20,6 +20,7 @@ use RoundlyConsulting\Git\Dto\Issue;
 use RoundlyConsulting\Git\Dto\PullRequest;
 use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Tag;
+use RoundlyConsulting\Git\Enums\ResourceState;
 
 it('lists merge requests as pull requests', function () {
     Http::fake(['*/merge_requests*' => Http::response([[
@@ -29,7 +30,7 @@ it('lists merge requests as pull requests', function () {
     ]])]);
 
     expect(gitlab()->pullRequests('g/p')->first())
-        ->toBeInstanceOf(PullRequest::class)->number->toBe(4)->state->toBe('opened');
+        ->toBeInstanceOf(PullRequest::class)->number->toBe(4)->state->toBe(ResourceState::Open);
 });
 
 it('gets a single merge request', function () {

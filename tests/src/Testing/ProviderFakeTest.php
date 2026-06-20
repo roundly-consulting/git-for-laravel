@@ -6,7 +6,9 @@ use Illuminate\Support\Carbon;
 use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
+use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\Owner;
+use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Facades\Registry;
@@ -28,7 +30,7 @@ it('exposes a faithful provider double surface', function () {
 
 it('returns seeded branches, commit and clone url', function () {
     $fake = Registry::fake();
-    $commit = new Commit('sha', 'msg', new Author('n', 'e', null), null, Carbon::now());
+    $commit = new Commit(ProviderName::Github, 'sha', 'msg', new Author('n', 'e', null), null, Carbon::now());
 
     $provider = $fake->github();
     (fn () => $this->seeded['branches'] = ['main'])->call($provider);
@@ -46,4 +48,52 @@ it('throws when reading unseeded repository or commit', function () {
 
     expect(fn () => $provider->repository('o/r'))->toThrow(RuntimeException::class)
         ->and(fn () => $provider->commit('o/r', 'x'))->toThrow(RuntimeException::class);
+});
+
+it('exposes capabilities and the feature matrix on the fake', function () {
+    $provider = Registry::fake()->github();
+
+    expect($provider->capabilities())->toHaveCount(count(Feature::cases()))
+        ->and($provider->supportsAll(Feature::CreateRelease))->toBeTrue()
+        ->and($provider->supportsAny(Feature::CreateRelease))->toBeTrue()
+        ->and($provider->supportsAny())->toBeFalse()
+        ->and($provider->featureMatrix())->toHaveCount(count(Feature::cases()))
+        ->and($provider->repositoryUrl('o/r'))->toBe('o/r')
+        ->and($provider->languagesUrl('o/r'))->toBe('o/r')
+        ->and($provider->pullRequestUrl('o/r', 7))->toBe('o/r#7')
+        ->and($provider->contentsRequest('o/r', 'f', null))->toBe(['f', []])
+        ->and($provider->normalizeLanguages(['PHP' => '90']))->toBe(['PHP' => 90])
+        ->and($provider->runPool([]))->toBe([]);
+});
+
+it('drives the webhook lifecycle through the fake', function () {
+    $fake = Registry::fake();
+    $provider = $fake->github();
+    $provider->seedWebhooks([new Webhook(
+        provider: ProviderName::Github,
+        id: '1',
+        url: 'https://app.test/hook',
+        events: ['push'],
+        active: true,
+    )]);
+
+    $manager = $provider->webhooks('o/r');
+
+    expect($manager->all())->toHaveCount(1)
+        ->and($manager->registered('https://app.test/hook'))->toBeTrue();
+
+    $created = $provider->createWebhook('o/r', new NewWebhook(url: 'https://new.test/hook'));
+    $provider->deleteWebhook('o/r', '1');
+
+    expect($created->url)->toBe('https://new.test/hook');
+
+    $fake->assertSent(ProviderName::Github, 'createWebhook');
+    $fake->assertSent(ProviderName::Github, 'deleteWebhook');
+});
+
+it('throws on unavailable fake mappers', function () {
+    $provider = Registry::fake()->github();
+
+    expect(fn () => $provider->mapResource())->toThrow(RuntimeException::class)
+        ->and(fn () => $provider->mapFileContent([]))->toThrow(RuntimeException::class);
 });

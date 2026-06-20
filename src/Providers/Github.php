@@ -13,6 +13,8 @@ use RoundlyConsulting\Git\Dto\Comparison;
 use RoundlyConsulting\Git\Dto\ComparisonFile;
 use RoundlyConsulting\Git\Dto\Contributor;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
+use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
+use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
 use RoundlyConsulting\Git\Dto\FileContent;
 use RoundlyConsulting\Git\Dto\Input\NewBranch;
@@ -33,6 +35,8 @@ use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
+use RoundlyConsulting\Git\Mapping\GithubMapper;
+use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
 
 class Github extends BaseProvider
@@ -40,6 +44,11 @@ class Github extends BaseProvider
     protected function key(): string
     {
         return 'github';
+    }
+
+    protected function mapper(): ResourceMapper
+    {
+        return resolve(GithubMapper::class);
     }
 
     public function user(): Owner
@@ -50,6 +59,7 @@ class Github extends BaseProvider
             id: (string) $user['id'],
             name: $user['login'],
             avatar: $user['avatar_url'] ?? null,
+            raw: $user,
         );
     }
 
@@ -61,7 +71,7 @@ class Github extends BaseProvider
             query: [],
             page: 1,
             perPage: $perPage,
-            map: fn (array $repository): Repository => $this->createRepositoryDto($repository),
+            map: fn (array $repository): Repository => $this->mapper()->repository($repository),
         );
     }
 
@@ -73,13 +83,13 @@ class Github extends BaseProvider
             query: [],
             page: $page,
             perPage: $perPage,
-            map: fn (array $repository): Repository => $this->createRepositoryDto($repository),
+            map: fn (array $repository): Repository => $this->mapper()->repository($repository),
         ));
     }
 
     public function repository(string $path): Repository
     {
-        return $this->createRepositoryDto($this->get("/repos/{$path}")->json());
+        return $this->mapper()->repository($this->get("/repos/{$path}")->json());
     }
 
     /** @return Page<string> */
@@ -124,14 +134,14 @@ class Github extends BaseProvider
                 query: $query,
                 page: $page,
                 perPage: $perPage,
-                map: fn (array $commit): Commit => $this->createCommitDto($commit),
+                map: fn (array $commit): Commit => $this->mapper()->commit($commit),
             );
         });
     }
 
     public function commit(string $path, string $commit): Commit
     {
-        return $this->createCommitDto($this->get("/repos/{$path}/commits/{$commit}")->json());
+        return $this->mapper()->commit($this->get("/repos/{$path}/commits/{$commit}")->json());
     }
 
     /** @return Page<PullRequest> */
@@ -144,7 +154,7 @@ class Github extends BaseProvider
             query: ['state' => $state],
             page: 1,
             perPage: $perPage,
-            map: fn (array $pr): PullRequest => $this->createPullRequestDto($pr),
+            map: fn (array $pr): PullRequest => $this->mapper()->pullRequest($pr),
         );
     }
 
@@ -152,7 +162,7 @@ class Github extends BaseProvider
     {
         $this->guardSupported(Feature::FindPullRequest);
 
-        return $this->createPullRequestDto($this->get("/repos/{$path}/pulls/{$number}")->json());
+        return $this->mapper()->pullRequest($this->get("/repos/{$path}/pulls/{$number}")->json());
     }
 
     /** @return Page<Issue> */
@@ -165,7 +175,7 @@ class Github extends BaseProvider
             query: ['state' => $state],
             page: 1,
             perPage: $perPage,
-            map: fn (array $issue): Issue => $this->createIssueDto($issue),
+            map: fn (array $issue): Issue => $this->mapper()->issue($issue),
         );
     }
 
@@ -173,7 +183,7 @@ class Github extends BaseProvider
     {
         $this->guardSupported(Feature::FindIssue);
 
-        return $this->createIssueDto($this->get("/repos/{$path}/issues/{$number}")->json());
+        return $this->mapper()->issue($this->get("/repos/{$path}/issues/{$number}")->json());
     }
 
     /** @return Page<Tag> */
@@ -186,11 +196,7 @@ class Github extends BaseProvider
             query: [],
             page: 1,
             perPage: $perPage,
-            map: fn (array $tag): Tag => new Tag(
-                name: $tag['name'],
-                sha: $tag['commit']['sha'] ?? null,
-                url: $tag['commit']['url'] ?? null,
-            ),
+            map: fn (array $tag): Tag => $this->mapper()->tag($tag),
         );
     }
 
@@ -204,7 +210,7 @@ class Github extends BaseProvider
             query: [],
             page: 1,
             perPage: $perPage,
-            map: fn (array $release): Release => $this->createReleaseDto($release),
+            map: fn (array $release): Release => $this->mapper()->release($release),
         );
     }
 
@@ -212,7 +218,7 @@ class Github extends BaseProvider
     {
         $this->guardSupported(Feature::FindRelease);
 
-        return $this->createReleaseDto($this->get("/repos/{$path}/releases/tags/{$tagOrId}")->json());
+        return $this->mapper()->release($this->get("/repos/{$path}/releases/tags/{$tagOrId}")->json());
     }
 
     public function contents(string $path, string $filePath, ?string $ref = null): FileContent
@@ -220,14 +226,41 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::FileContents);
 
         $response = $this->get("/repos/{$path}/contents/{$filePath}", $ref !== null ? ['ref' => $ref] : []);
-        $file = $response->json();
 
+        return $this->mapFileContent($response->json());
+    }
+
+    public function repositoryUrl(string $path): string
+    {
+        return "/repos/{$path}";
+    }
+
+    public function languagesUrl(string $path): string
+    {
+        return "/repos/{$path}/languages";
+    }
+
+    public function pullRequestUrl(string $path, int $number): string
+    {
+        return "/repos/{$path}/pulls/{$number}";
+    }
+
+    /** @return array{0: string, 1: array<string, mixed>} */
+    public function contentsRequest(string $path, string $filePath, ?string $ref = null): array
+    {
+        return ["/repos/{$path}/contents/{$filePath}", $ref !== null ? ['ref' => $ref] : []];
+    }
+
+    /** @param array<string, mixed> $raw */
+    public function mapFileContent(array $raw): FileContent
+    {
         return new FileContent(
-            path: $file['path'],
-            content: (string) base64_decode((string) ($file['content'] ?? ''), true),
-            sha: $file['sha'] ?? null,
-            size: (int) ($file['size'] ?? 0),
-            url: $file['html_url'] ?? null,
+            path: $raw['path'],
+            content: (string) base64_decode((string) ($raw['content'] ?? ''), true),
+            sha: $raw['sha'] ?? null,
+            size: (int) ($raw['size'] ?? 0),
+            url: $raw['html_url'] ?? null,
+            raw: $raw,
         );
     }
 
@@ -294,7 +327,7 @@ class Github extends BaseProvider
             query: ['q' => $query],
             page: 1,
             perPage: $perPage,
-            map: fn (array $repository): Repository => $this->createRepositoryDto($repository),
+            map: fn (array $repository): Repository => $this->mapper()->repository($repository),
             itemsKey: 'items',
         );
     }
@@ -310,7 +343,7 @@ class Github extends BaseProvider
             'description' => $data->description,
         ]);
 
-        return $this->createRepositoryDto($response->json());
+        return $this->mapper()->repository($response->json());
     }
 
     public function createBranch(string $path, NewBranch $data): string
@@ -369,7 +402,7 @@ class Github extends BaseProvider
             'body' => $data->body,
         ]);
 
-        return $this->createPullRequestDto($response->json());
+        return $this->mapper()->pullRequest($response->json());
     }
 
     public function comment(string $path, NewComment $data): Comment
@@ -409,7 +442,7 @@ class Github extends BaseProvider
             'prerelease' => $data->prerelease,
         ]);
 
-        return $this->createReleaseDto($response->json());
+        return $this->mapper()->release($response->json());
     }
 
     public function createTag(string $path, NewTag $data): Tag
@@ -425,9 +458,11 @@ class Github extends BaseProvider
         $ref = $response->json();
 
         return new Tag(
+            provider: $this->providerName(),
             name: $data->name,
             sha: $ref['object']['sha'] ?? $data->ref,
             url: $ref['url'] ?? null,
+            raw: $ref,
         );
     }
 
@@ -449,10 +484,12 @@ class Github extends BaseProvider
         $hook = $response->json();
 
         return new Webhook(
+            provider: $this->providerName(),
             id: (string) $hook['id'],
             url: $hook['config']['url'] ?? $data->url,
             events: $hook['events'] ?? $data->events,
             active: (bool) ($hook['active'] ?? $data->active),
+            raw: $hook,
         );
     }
 
@@ -462,6 +499,25 @@ class Github extends BaseProvider
         $this->guardAuthenticated();
 
         $this->send('DELETE', "/repos/{$path}/hooks/{$id}");
+    }
+
+    /** @return list<Webhook> */
+    public function listWebhooks(string $path): array
+    {
+        $this->guardSupported(Feature::ListWebhooks);
+        $this->guardAuthenticated();
+
+        /** @var list<array<string, mixed>> $hooks */
+        $hooks = $this->get("/repos/{$path}/hooks")->json();
+
+        return array_map(fn (array $hook): Webhook => new Webhook(
+            provider: $this->providerName(),
+            id: (string) $hook['id'],
+            url: $hook['config']['url'] ?? '',
+            events: $hook['events'] ?? [],
+            active: (bool) ($hook['active'] ?? true),
+            raw: $hook,
+        ), $hooks);
     }
 
     public function cloneUrlForRepository(string $path, string $username, Credentials $credentials): string
@@ -510,6 +566,7 @@ class Github extends BaseProvider
             Feature::CreateTag,
             Feature::CreateWebhook,
             Feature::DeleteWebhook,
+            Feature::ListWebhooks,
         ];
     }
 
@@ -518,48 +575,16 @@ class Github extends BaseProvider
     {
         return [
             Token::class,
+            GithubAppToken::class,
+            OauthToken::class,
         ];
-    }
-
-    /** @param array<string, mixed> $repository */
-    protected function createRepositoryDto(array $repository): Repository
-    {
-        return new Repository(
-            id: (string) $repository['id'],
-            path: $repository['full_name'],
-            name: $repository['name'],
-            description: $repository['description'] ?? null,
-            defaultBranch: $repository['default_branch'],
-            owner: new Owner(
-                id: (string) $repository['owner']['id'],
-                name: $repository['owner']['login'],
-                avatar: $repository['owner']['avatar_url'] ?? null,
-            ),
-            createdAt: $createdAt = Carbon::parse($repository['created_at']),
-            lastActivityAt: $repository['pushed_at'] ? Carbon::parse($repository['pushed_at']) : $createdAt,
-        );
-    }
-
-    /** @param array<string, mixed> $commit */
-    protected function createCommitDto(array $commit): Commit
-    {
-        return new Commit(
-            sha: $commit['sha'],
-            message: $commit['commit']['message'],
-            author: new Author(
-                name: $commit['commit']['author']['name'],
-                email: $commit['commit']['author']['email'],
-                avatar: $commit['author']['avatar_url'] ?? null,
-            ),
-            url: $commit['html_url'] ?? null,
-            commitAt: Carbon::parse($commit['commit']['author']['date']),
-        );
     }
 
     /** @param array<string, mixed> $commit */
     protected function createCommitFromContentResponse(array $commit): Commit
     {
         return new Commit(
+            provider: $this->providerName(),
             sha: $commit['sha'],
             message: $commit['message'],
             author: new Author(
@@ -569,61 +594,7 @@ class Github extends BaseProvider
             ),
             url: $commit['html_url'] ?? null,
             commitAt: Carbon::parse($commit['author']['date'] ?? 'now'),
-        );
-    }
-
-    /** @param array<string, mixed> $pr */
-    protected function createPullRequestDto(array $pr): PullRequest
-    {
-        return new PullRequest(
-            id: (string) $pr['id'],
-            number: (int) $pr['number'],
-            title: $pr['title'],
-            body: $pr['body'] ?? null,
-            state: $pr['state'],
-            sourceBranch: $pr['head']['ref'] ?? '',
-            targetBranch: $pr['base']['ref'] ?? '',
-            author: isset($pr['user']) ? new Author(
-                name: $pr['user']['login'],
-                email: '',
-                avatar: $pr['user']['avatar_url'] ?? null,
-            ) : null,
-            url: $pr['html_url'] ?? null,
-            createdAt: Carbon::parse($pr['created_at']),
-        );
-    }
-
-    /** @param array<string, mixed> $issue */
-    protected function createIssueDto(array $issue): Issue
-    {
-        return new Issue(
-            id: (string) $issue['id'],
-            number: (int) $issue['number'],
-            title: $issue['title'],
-            body: $issue['body'] ?? null,
-            state: $issue['state'],
-            author: isset($issue['user']) ? new Author(
-                name: $issue['user']['login'],
-                email: '',
-                avatar: $issue['user']['avatar_url'] ?? null,
-            ) : null,
-            url: $issue['html_url'] ?? null,
-            createdAt: Carbon::parse($issue['created_at']),
-        );
-    }
-
-    /** @param array<string, mixed> $release */
-    protected function createReleaseDto(array $release): Release
-    {
-        return new Release(
-            id: (string) $release['id'],
-            tagName: $release['tag_name'],
-            name: $release['name'] ?? null,
-            body: $release['body'] ?? null,
-            draft: (bool) ($release['draft'] ?? false),
-            prerelease: (bool) ($release['prerelease'] ?? false),
-            url: $release['html_url'] ?? null,
-            createdAt: isset($release['created_at']) ? Carbon::parse($release['created_at']) : null,
+            raw: $commit,
         );
     }
 }

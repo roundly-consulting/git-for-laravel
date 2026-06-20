@@ -13,6 +13,7 @@ use RoundlyConsulting\Git\Facades\Registry;
 function fakeRepository(string $name = 'Hello-World'): Repository
 {
     return new Repository(
+        provider: ProviderName::Github,
         id: '1',
         path: "octocat/{$name}",
         name: $name,

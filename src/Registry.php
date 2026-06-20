@@ -7,9 +7,11 @@ namespace RoundlyConsulting\Git;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Traits\Macroable;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
+use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Interfaces\Provider;
+use RoundlyConsulting\Git\Providers\BaseProvider;
 use RoundlyConsulting\Git\Providers\Bitbucket;
 use RoundlyConsulting\Git\Providers\Github;
 use RoundlyConsulting\Git\Providers\Gitlab;
@@ -53,6 +55,21 @@ class Registry
         return $instance->authenticate($credentials);
     }
 
+    /**
+     * The capability matrix for a provider without authenticating it.
+     *
+     * @return array<string, bool>
+     */
+    public function capabilities(ProviderName|string $provider): array
+    {
+        $name = $this->resolveProviderName($provider);
+
+        /** @var BaseProvider $instance */
+        $instance = resolve($name->providerClass());
+
+        return $instance->capabilities();
+    }
+
     public function fake(): RegistryFake
     {
         $fake = new RegistryFake;
@@ -65,7 +82,25 @@ class Registry
 
     protected function defaultCredentials(ProviderName $provider): ?Credentials
     {
-        $token = config("git.providers.{$provider->key()}.token");
+        $key = $provider->key();
+
+        $appId = config("git.providers.{$key}.app.id");
+
+        if (is_string($appId) && $appId !== '') {
+            $installationId = config("git.providers.{$key}.app.installation_id");
+            $privateKey = config("git.providers.{$key}.app.private_key");
+
+            if (is_string($installationId) && $installationId !== '' && is_string($privateKey) && $privateKey !== '') {
+                return GithubAppToken::for(
+                    appId: $appId,
+                    installationId: $installationId,
+                    privateKey: $privateKey,
+                    apiBaseUrl: is_string($url = config("git.providers.{$key}.url")) ? $url : null,
+                );
+            }
+        }
+
+        $token = config("git.providers.{$key}.token");
 
         if (! is_string($token) || $token === '') {
             return null;

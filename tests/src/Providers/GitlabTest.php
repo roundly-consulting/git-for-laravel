@@ -32,7 +32,7 @@ it('throws exception when authenticating with an unsupported method', function (
 })->throws(
     InvalidCredentialsException::class,
     'Authentication with [Password] is not supported by provider [GitLab].'.
-    'Supported authentication methods are [Token].'
+    'Supported authentication methods are [Token, OauthToken].'
 );
 
 it('returns currently authenticated user', function () {

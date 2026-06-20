@@ -45,5 +45,5 @@ it('exposes a description and info dto for every feature', function () {
 
 it('serializes a feature info dto with the enum value', function () {
     expect(Feature::ListCommits->info()->toArray())
-        ->toBe(['id' => 'commits', 'description' => Feature::ListCommits->description()]);
+        ->toBe(['id' => 'commits', 'description' => Feature::ListCommits->description(), 'supported' => true]);
 });

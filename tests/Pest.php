@@ -17,11 +17,17 @@ uses(TestCase::class)->in(
     __DIR__.'/src/Commands',
     __DIR__.'/src/Query',
     __DIR__.'/src/Testing',
+    __DIR__.'/src/Mapping',
+    __DIR__.'/src/Enums',
+    __DIR__.'/src/Batch',
+    __DIR__.'/src/Auth',
     __DIR__.'/src/EnumsTest.php',
     __DIR__.'/src/RegistryTest.php',
     __DIR__.'/src/RateLimitTest.php',
     __DIR__.'/src/ResilienceTest.php',
     __DIR__.'/src/WebhookRouteTest.php',
+    __DIR__.'/src/CapabilityMatrixTest.php',
+    __DIR__.'/src/AppAuthTest.php',
     __DIR__.'/ArchTest.php',
 );
 
