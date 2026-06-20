@@ -1,10 +1,10 @@
 {
     "values": [
         {
-            "displayId": "main"
+            "name": "main"
         },
         {
-            "displayId": "dev"
+            "name": "dev"
         }
     ]
 }

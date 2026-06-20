@@ -8,6 +8,13 @@ use Exception;
 
 final class InvalidCredentialsException extends Exception
 {
+    public static function missing(string $provider): self
+    {
+        return new self(
+            "Provider [{$provider}] requires authentication for this operation. Provide a credential or set the provider token in config."
+        );
+    }
+
     /** @param list<class-string> $supported */
     public static function unsupported(string $provider, string $credentials, array $supported): self
     {

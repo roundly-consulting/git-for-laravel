@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Interfaces;
 
-use Illuminate\Support\Collection;
+use Illuminate\Support\LazyCollection;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
-use RoundlyConsulting\Git\Dto\Feature;
 use RoundlyConsulting\Git\Dto\Owner;
+use RoundlyConsulting\Git\Dto\Page;
+use RoundlyConsulting\Git\Dto\RateLimitStatus;
 use RoundlyConsulting\Git\Dto\Repository;
+use RoundlyConsulting\Git\Enums\Feature;
+use RoundlyConsulting\Git\Enums\ProviderName;
 
 interface Provider
 {
@@ -17,10 +20,12 @@ interface Provider
 
     public function description(): string;
 
+    public function providerName(): ProviderName;
+
     /** @return list<Feature> */
     public function features(): array;
 
-    public function supports(string $feature): bool;
+    public function supports(Feature $feature): bool;
 
     /** @return list<class-string<Credentials>> */
     public function authenticationMethods(): array;
@@ -29,18 +34,20 @@ interface Provider
 
     public function isAuthenticated(): bool;
 
+    public function rateLimit(): ?RateLimitStatus;
+
     public function user(): Owner;
 
-    /** @return Collection<int, Repository> */
-    public function repositories(): Collection;
+    /** @return Page<Repository> */
+    public function repositories(int $perPage = 30): Page;
+
+    /** @return LazyCollection<int, Repository> */
+    public function allRepositories(int $perPage = 30): LazyCollection;
 
     public function repository(string $path): Repository;
 
-    /** @return list<string> */
-    public function branches(string $path): array;
-
-    /** @return Collection<int, Commit> */
-    public function commits(string $path, string $branch, int $page = 1): Collection;
+    /** @return Page<string> */
+    public function branches(string $path, int $perPage = 30): Page;
 
     public function commit(string $path, string $commit): Commit;
 
