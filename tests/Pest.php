@@ -8,8 +8,22 @@ use RoundlyConsulting\Git\Providers\Bitbucket;
 use RoundlyConsulting\Git\Providers\Github;
 use RoundlyConsulting\Git\Providers\Gitlab;
 use RoundlyConsulting\Git\Tests\TestCase;
+use RoundlyConsulting\Git\Tests\WebhookTestCase;
 
-uses(TestCase::class)->in(__DIR__);
+uses(WebhookTestCase::class)->in(__DIR__.'/src/Webhooks');
+uses(TestCase::class)->in(
+    __DIR__.'/src/Providers',
+    __DIR__.'/src/Dto',
+    __DIR__.'/src/Commands',
+    __DIR__.'/src/Query',
+    __DIR__.'/src/Testing',
+    __DIR__.'/src/EnumsTest.php',
+    __DIR__.'/src/RegistryTest.php',
+    __DIR__.'/src/RateLimitTest.php',
+    __DIR__.'/src/ResilienceTest.php',
+    __DIR__.'/src/WebhookRouteTest.php',
+    __DIR__.'/ArchTest.php',
+);
 
 if (! function_exists('snapshot')) {
     function snapshot(string $name, bool $raw = false, int $times = 1): array|PromiseInterface

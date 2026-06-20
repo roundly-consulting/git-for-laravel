@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git;
 
+use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Traits\Macroable;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
@@ -57,6 +58,7 @@ class Registry
         $fake = new RegistryFake;
 
         app()->instance(self::class, $fake);
+        Facade::clearResolvedInstance(self::class);
 
         return $fake;
     }

@@ -453,8 +453,9 @@ abstract class BaseProvider implements Provider
         }
 
         $channel = config('git.logging.channel');
+        $logger = is_string($channel) && $channel !== '' ? Log::channel($channel) : Log::getFacadeRoot();
 
-        Log::channel(is_string($channel) ? $channel : null)->debug('git request', [
+        $logger->debug('git request', [
             'provider' => $this->key(),
             'method' => $method,
             'url' => $url,
