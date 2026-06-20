@@ -55,13 +55,27 @@ return [
                 'timespan' => env('GITHUB_RATELIMIT_TIMESPAN', 'hour'),
             ],
             'options' => ['headers' => [/* User-Agent, X-GitHub-Api-Version */]],
+
+            // GitHub App authentication (self-refreshing installation tokens).
+            'app' => [
+                'id' => env('GITHUB_APP_ID'),
+                'installation_id' => env('GITHUB_APP_INSTALLATION_ID'),
+                'private_key' => env('GITHUB_APP_PRIVATE_KEY'), // PEM string or file path
+            ],
+            // OAuth credentials (self-refreshing access tokens).
+            'oauth' => [
+                'client_id' => env('GITHUB_OAUTH_CLIENT_ID'),
+                'client_secret' => env('GITHUB_OAUTH_CLIENT_SECRET'),
+                'token_url' => env('GITHUB_OAUTH_TOKEN_URL', 'https://github.com/login/oauth/access_token'),
+            ],
         ],
-        // gitlab and bitbucket follow the same shape.
+        // gitlab and bitbucket follow the same shape (gitlab also ships an `oauth` block).
     ],
 
     'cache'   => ['enabled' => env('GIT_CACHE_ENABLED', false), 'store' => env('GIT_CACHE_STORE'), 'ttl' => env('GIT_CACHE_TTL', 3600)],
     'logging' => ['enabled' => env('GIT_LOGGING_ENABLED', false), 'channel' => env('GIT_LOGGING_CHANNEL')],
     'webhooks'=> ['enabled' => env('GIT_WEBHOOKS_ENABLED', false), 'path' => env('GIT_WEBHOOKS_PATH', 'git/webhooks'), 'middleware' => ['api']],
+    'batch'   => ['concurrency' => env('GIT_BATCH_CONCURRENCY', 25)],
 ];
 ```
 
@@ -83,11 +97,23 @@ return [
 | `webhooks.enabled` | bool | `false` | Register the webhook receiving route. |
 | `webhooks.path` | string | `git/webhooks` | Base path for `POST {path}/{provider}`. |
 | `webhooks.middleware` | array | `['api']` | Middleware applied to the webhook route. |
+| `batch.concurrency` | int | `25` | Max concurrent requests per pool; larger inputs are chunked. |
+| `providers.github.app.id` | string\|null | `null` | GitHub App id; when set, `Registry::github()` mints installation tokens. |
+| `providers.github.app.installation_id` | string\|null | `null` | GitHub App installation id. |
+| `providers.github.app.private_key` | string\|null | `null` | GitHub App private key — a PEM string or a file path. |
+| `providers.<name>.oauth.client_id` | string\|null | `null` | OAuth client id for refresh-token grants. |
+| `providers.<name>.oauth.client_secret` | string\|null | `null` | OAuth client secret. |
+| `providers.<name>.oauth.token_url` | string | provider token URL | OAuth token endpoint used to refresh access tokens. |
 
 Environment variables: `GITHUB_TOKEN`, `GITLAB_TOKEN`, `BITBUCKET_TOKEN`,
 `*_WEBHOOK_SECRET`, `GIT_CACHE_ENABLED`, `GIT_LOGGING_ENABLED`, `GIT_WEBHOOKS_ENABLED`,
-`GIT_WEBHOOKS_PATH`, and the per-provider `*_RETRY_TIMES` / `*_RETRY_BACKOFF` / timeout /
-rate-limit keys.
+`GIT_WEBHOOKS_PATH`, `GIT_BATCH_CONCURRENCY`, `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`,
+`GITHUB_APP_PRIVATE_KEY`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`,
+`GITHUB_OAUTH_TOKEN_URL` (plus the GitLab equivalents), and the per-provider
+`*_RETRY_TIMES` / `*_RETRY_BACKOFF` / timeout / rate-limit keys.
+
+> App and OAuth tokens are cached so they survive across requests; point `cache.store` at a
+> shared store (Redis, database, file) rather than the `array` driver when you use them.
 
 Rate limiting is enforced client-side with Laravel's native rate limiter; exceeding the
 configured budget throws a `RateLimitExceededException` before a request is sent.
@@ -174,7 +200,46 @@ $github->searchRepositories('laravel');           // Page<Repository>
 ```
 
 Capabilities differ per provider; calling one a provider doesn't support throws a
-`FeatureNotSupportedException`.
+`FeatureNotSupportedException` — see **Feature detection** to branch on support instead.
+
+### Canonical data model and the raw escape hatch
+
+Every resource DTO is provider-agnostic: it carries the `ProviderName` it came from, a
+normalized `ResourceState` enum (instead of a raw `'open'`/`'opened'`/`'OPEN'` string), and a
+`raw()` accessor returning the exact decoded provider payload for any field the DTO doesn't
+model. `raw` is never serialized into `toArray()`/`toJson()`.
+
+```php
+use RoundlyConsulting\Git\Enums\ResourceState;
+
+$pr = $github->pullRequest('octocat/Hello-World', 1);
+
+$pr->state;                 // ResourceState::Open — identical across GitHub/GitLab/Bitbucket
+$pr->raw()['mergeable'];    // any unmodelled provider field, still reachable
+```
+
+### Concurrent fetches with batch()
+
+`batch()` fans a list of reads out over a single `Http::pool()` round trip, returning a keyed
+`BatchResult` that separates successes from per-key failures (no exception unless you ask for
+one). Pooled requests carry the same authentication as single requests but bypass the ETag
+conditional cache.
+
+```php
+$result = $github->batch()->languages(['acme/api', 'acme/web']); // BatchResult<array<string,int>>
+
+$result->results();          // ['acme/api' => ['PHP' => 80, ...], ...]
+$result->get('acme/api');
+foreach ($result->errors() as $key => $error) {
+    report("{$key} failed with {$error->status}");
+}
+
+$result->throwOnError();     // raises BatchRequestException if any key failed
+
+$github->batch()->repositories(['acme/api', 'acme/web']);   // BatchResult<Repository>
+$github->batch()->contents('acme/api', ['README.md', 'composer.json']);
+$github->batch()->pullRequest(['main' => 'acme/api#7']);    // id => PullRequest, ref "path#number"
+```
 
 ### Write operations
 
@@ -210,22 +275,78 @@ $url = $github->cloneUrlForRepository('octocat/Hello-World', 'octocat', Token::f
 // https://token:ghp_...@github.com/octocat/Hello-World.git
 ```
 
+### Self-refreshing GitHub App / OAuth credentials
+
+Static `Token` credentials never expire, but GitHub App installation tokens and OAuth access
+tokens do. `GithubAppToken` and `OauthToken` mint, cache, and refresh the access token
+transparently — reads, writes, and batches all benefit, with secrets redacted from any
+serialization. The App JWT is signed natively with `openssl_sign` (no third-party JWT library).
+
+```php
+use RoundlyConsulting\Git\Dto\Credentials\{GithubAppToken, OauthToken};
+
+$github = Registry::github(GithubAppToken::for(
+    appId: config('git.providers.github.app.id'),
+    installationId: config('git.providers.github.app.installation_id'),
+    privateKey: config('git.providers.github.app.private_key'), // PEM string or file path
+));
+$github->repositories(); // installation token minted, cached to expiry, reused
+
+$github = Registry::github(OauthToken::for(
+    accessToken: $access, refreshToken: $refresh,
+    clientId: $clientId, clientSecret: $secret,
+    tokenUrl: config('git.providers.github.oauth.token_url'),
+    expiresAt: $expiresAt,
+));
+```
+
+When `git.providers.github.app.id` is configured, `Registry::github()` builds a
+`GithubAppToken` automatically — no explicit credential needed. Use a shared cache store (not
+the `array` driver) so minted tokens persist across requests.
+
 ### Webhooks
 
 Set `GIT_WEBHOOKS_ENABLED=true` and a `*_WEBHOOK_SECRET` per provider. Incoming requests to
 `POST {webhooks.path}/{provider}` are signature-verified (GitHub `X-Hub-Signature-256`, GitLab
 `X-Gitlab-Token`, Bitbucket `X-Hub-Signature`) and dispatched as events:
 
+Inbound payloads run through the same canonical mappers, so listeners get typed, provider-
+agnostic accessors instead of hand-parsing three raw shapes (`raw()` stays available):
+
 ```php
 use RoundlyConsulting\Git\Events\{WebhookReceived, PushReceived, PullRequestEventReceived};
 
 Event::listen(PushReceived::class, function (PushReceived $event) {
-    $event->event->provider; // ProviderName
-    $event->event->payload;  // array
+    foreach ($event->commits() as $commit) {   // list<Commit>, canonical
+        $commit->sha;
+    }
+    $event->ref();          // 'refs/heads/main'
+    $event->repository();    // ?Repository
+    $event->pusher();        // ?Author
+});
+
+Event::listen(PullRequestEventReceived::class, function (PullRequestEventReceived $event) {
+    $event->pullRequest()?->state; // ResourceState
+    $event->action();              // raw event type
 });
 ```
 
 A missing or invalid signature returns `403` and dispatches nothing.
+
+### Webhook auto-registration
+
+`webhooks($repo)` ties this app's inbound route to the provider's outbound create-webhook op:
+it derives the URL from the published `git.webhooks` route, defaults the secret to the
+configured `webhook_secret`, and is idempotent (a hook with the same URL is never created
+twice).
+
+```php
+$github->webhooks('acme/api')->register();              // returns the existing or new Webhook
+$github->webhooks('acme/api')->register(events: ['push', 'pull_request']);
+$github->webhooks('acme/api')->all();                   // list<Webhook>
+$github->webhooks('acme/api')->registered($url);        // bool
+$github->webhooks('acme/api')->deleteByUrl($url);
+```
 
 ### Artisan commands
 
@@ -233,6 +354,7 @@ A missing or invalid signature returns `403` and dispatches nothing.
 php artisan git:repos github [--json]
 php artisan git:rate-limit github
 php artisan git:commits github octocat/Hello-World --branch=main --since=2024-01-01
+php artisan git:webhook github acme/api [--url=] [--events=push] [--secret=] [--list] [--delete=ID]
 ```
 
 ### Testing without real HTTP
@@ -252,13 +374,23 @@ $fake->assertRepositoryCreated('acme/new-repo');
 
 ### Feature detection
 
+Branch on the capability matrix instead of catching `FeatureNotSupportedException`:
+
 ```php
 use RoundlyConsulting\Git\Enums\Feature;
 
 if ($github->supports(Feature::ListCommits)) {
     $github->commits('octocat/Hello-World')->get();
 }
+
+$github->supportsAll(Feature::CreateRelease, Feature::CreateTag); // bool
+$github->supportsAny(Feature::Languages);                         // bool
+$github->capabilities();                                          // ['repositories' => true, ...]
+$github->featureMatrix();                                         // list<FeatureInfo> with ->supported
+Registry::capabilities(ProviderName::Bitbucket);                  // without authenticating
 ```
+
+The testing fake also records pooled calls — `$fake->assertBatched(ProviderName::Github, 'languages')`.
 
 ### Extending the registry
 
