@@ -1,0 +1,76 @@
+<?php
+
+declare(strict_types=1);
+
+namespace RoundlyConsulting\Git\Enums;
+
+use RoundlyConsulting\Git\Dto\FeatureInfo;
+
+enum Feature: string
+{
+    case ListRepositories = 'repositories';
+    case FindRepository = 'repository';
+    case ListCommits = 'commits';
+    case FindCommit = 'commit';
+    case ListRepositoryBranches = 'branches';
+    case ListPullRequests = 'pull_requests';
+    case FindPullRequest = 'pull_request';
+    case ListIssues = 'issues';
+    case FindIssue = 'issue';
+    case ListTags = 'tags';
+    case ListReleases = 'releases';
+    case FindRelease = 'release';
+    case FileContents = 'contents';
+    case Compare = 'compare';
+    case ListContributors = 'contributors';
+    case Languages = 'languages';
+    case SearchRepositories = 'search_repositories';
+    case CreateRepository = 'create_repository';
+    case CreateBranch = 'create_branch';
+    case CreateFile = 'create_file';
+    case UpdateFile = 'update_file';
+    case CreatePullRequest = 'create_pull_request';
+    case CreateComment = 'create_comment';
+    case CreateRelease = 'create_release';
+    case CreateTag = 'create_tag';
+    case CreateWebhook = 'create_webhook';
+    case DeleteWebhook = 'delete_webhook';
+
+    public function description(): string
+    {
+        return match ($this) {
+            self::ListRepositories => 'List of all repositories accessible by credentials.',
+            self::FindRepository => 'Get details of specific repository by name, accessible by credentials.',
+            self::ListCommits => 'List of all branch commits accessible by credentials.',
+            self::FindCommit => 'Get details of specific commit by sha hash, accessible by credentials.',
+            self::ListRepositoryBranches => 'List of all repository branches.',
+            self::ListPullRequests => 'List pull/merge requests for a repository.',
+            self::FindPullRequest => 'Get a single pull/merge request by number.',
+            self::ListIssues => 'List issues for a repository.',
+            self::FindIssue => 'Get a single issue by number.',
+            self::ListTags => 'List tags for a repository.',
+            self::ListReleases => 'List releases for a repository.',
+            self::FindRelease => 'Get a single release by tag or id.',
+            self::FileContents => 'Fetch the decoded contents of a file.',
+            self::Compare => 'Compare two refs and list changed files.',
+            self::ListContributors => 'List contributors for a repository.',
+            self::Languages => 'List the languages used in a repository.',
+            self::SearchRepositories => 'Search repositories by query.',
+            self::CreateRepository => 'Create a new repository.',
+            self::CreateBranch => 'Create a branch from a base ref.',
+            self::CreateFile => 'Create a new file in a repository.',
+            self::UpdateFile => 'Update an existing file in a repository.',
+            self::CreatePullRequest => 'Open a new pull/merge request.',
+            self::CreateComment => 'Add a comment to a pull request, merge request, or issue.',
+            self::CreateRelease => 'Create a new release.',
+            self::CreateTag => 'Create a new tag.',
+            self::CreateWebhook => 'Register a repository webhook.',
+            self::DeleteWebhook => 'Remove a repository webhook.',
+        };
+    }
+
+    public function info(): FeatureInfo
+    {
+        return new FeatureInfo(id: $this, description: $this->description());
+    }
+}

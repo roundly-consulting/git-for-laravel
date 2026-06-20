@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Dto;
 
+use BackedEnum;
+use Carbon\CarbonInterface;
 use Illuminate\Contracts\Support\Arrayable;
 use Illuminate\Contracts\Support\Jsonable;
 use JsonSerializable;
@@ -44,6 +46,14 @@ abstract readonly class Dto implements Arrayable, Jsonable, JsonSerializable
 
         if ($value instanceof SensitiveParameterValue) {
             $value = $value->getValue();
+        }
+
+        if ($value instanceof BackedEnum) {
+            return $value->value;
+        }
+
+        if ($value instanceof CarbonInterface) {
+            return $value->toIso8601String();
         }
 
         if (is_object($value)) {

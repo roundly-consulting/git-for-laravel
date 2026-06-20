@@ -4,22 +4,22 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Dto;
 
+use RoundlyConsulting\Git\Enums\Timespan;
+
 final readonly class RateLimit extends Dto
 {
     public function __construct(
         public string $key,
         public int $maxAttempts,
-        public string $timespan,
+        public Timespan|int $timespan,
     ) {}
 
     public function decaySeconds(): int
     {
-        return match ($this->timespan) {
-            'second' => 1,
-            'minute' => 60,
-            'hour' => 3600,
-            'day' => 86400,
-            default => (int) $this->timespan,
-        };
+        if ($this->timespan instanceof Timespan) {
+            return $this->timespan->seconds();
+        }
+
+        return $this->timespan;
     }
 }

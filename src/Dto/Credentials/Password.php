@@ -33,11 +33,16 @@ final readonly class Password extends Credentials
         return $decoded;
     }
 
-    /** @return array<string, mixed> */
+    /**
+     * Redact the secret so credentials never serialize into logs or output.
+     *
+     * @return array<string, mixed>
+     */
     public function toArray(): array
     {
         return [
-            'credentials' => $this->credentials(),
+            'login' => $this->login(),
+            'password' => '••••',
         ];
     }
 }

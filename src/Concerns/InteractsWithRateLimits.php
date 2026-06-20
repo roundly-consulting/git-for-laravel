@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Git\Concerns;
 
 use Illuminate\Support\Facades\RateLimiter;
 use RoundlyConsulting\Git\Dto\RateLimit;
+use RoundlyConsulting\Git\Enums\Timespan;
 use RoundlyConsulting\Git\Exceptions\RateLimitExceededException;
 
 trait InteractsWithRateLimits
@@ -32,13 +33,15 @@ trait InteractsWithRateLimits
 
     protected function rateLimitFromConfig(string $provider): RateLimit
     {
-        /** @var array{owner?: string, maxAttempts?: int, timespan?: string} $config */
+        /** @var array{owner?: string, maxAttempts?: int|string, timespan?: string} $config */
         $config = config("git.providers.{$provider}.rateLimits", []);
+
+        $timespan = (string) ($config['timespan'] ?? 'minute');
 
         return new RateLimit(
             key: $config['owner'] ?? 'app',
-            maxAttempts: $config['maxAttempts'] ?? 60,
-            timespan: $config['timespan'] ?? 'minute',
+            maxAttempts: (int) ($config['maxAttempts'] ?? 60),
+            timespan: Timespan::tryFrom($timespan) ?? (is_numeric($timespan) ? (int) $timespan : Timespan::Minute),
         );
     }
 }

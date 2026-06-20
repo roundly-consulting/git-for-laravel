@@ -37,4 +37,16 @@ abstract readonly class Credentials extends Dto
     {
         return ! $this->is($type);
     }
+
+    /**
+     * Redact the secret so credentials never serialize into logs or output.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(): array
+    {
+        return [
+            'credentials' => $this->credentials !== null ? '••••' : null,
+        ];
+    }
 }
