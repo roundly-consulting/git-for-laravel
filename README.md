@@ -1,3 +1,11 @@
+<!-- roundly-hero:start -->
+<p align="center">
+  <a href="https://roundly-consulting.com/open-source/docs/git-for-laravel?utm_source=github&utm_medium=readme&utm_campaign=open-source&utm_content=git-for-laravel">
+    <img src="art/hero.png" alt="Git for Laravel — Roundly open source" width="100%">
+  </a>
+</p>
+<!-- roundly-hero:end -->
+
 # Git for Laravel
 
 Access git repositories on **GitHub**, **GitLab**, and **Bitbucket** through a single,
