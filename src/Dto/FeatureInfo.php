@@ -11,5 +11,6 @@ final readonly class FeatureInfo extends Dto
     public function __construct(
         public Feature $id,
         public string $description,
+        public bool $supported = true,
     ) {}
 }

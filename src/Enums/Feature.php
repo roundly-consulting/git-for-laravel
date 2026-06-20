@@ -35,6 +35,7 @@ enum Feature: string
     case CreateTag = 'create_tag';
     case CreateWebhook = 'create_webhook';
     case DeleteWebhook = 'delete_webhook';
+    case ListWebhooks = 'list_webhooks';
 
     public function description(): string
     {
@@ -66,11 +67,12 @@ enum Feature: string
             self::CreateTag => 'Create a new tag.',
             self::CreateWebhook => 'Register a repository webhook.',
             self::DeleteWebhook => 'Remove a repository webhook.',
+            self::ListWebhooks => 'List the webhooks registered on a repository.',
         };
     }
 
-    public function info(): FeatureInfo
+    public function info(bool $supported = true): FeatureInfo
     {
-        return new FeatureInfo(id: $this, description: $this->description());
+        return new FeatureInfo(id: $this, description: $this->description(), supported: $supported);
     }
 }

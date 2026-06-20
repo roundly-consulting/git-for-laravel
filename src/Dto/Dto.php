@@ -24,10 +24,15 @@ abstract readonly class Dto implements Arrayable, Jsonable, JsonSerializable
     /** @return array<string, mixed> */
     public function toArray(): array
     {
+        $vars = get_object_vars($this);
+
+        // The raw provider payload is an escape hatch, not part of the canonical
+        // serialized shape — excluding it keeps output lean and avoids leaking
+        // unmodelled provider internals into JSON.
+        unset($vars['raw']);
+
         /** @var array<string, mixed> $result */
-        $result = $this->recursiveConvertToArray(
-            value: get_object_vars($this)
-        );
+        $result = $this->recursiveConvertToArray(value: $vars);
 
         return $result;
     }
