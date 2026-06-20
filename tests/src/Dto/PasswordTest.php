@@ -31,17 +31,15 @@ it('returns password', function () {
     expect($password->password())->toBe('zer0day');
 });
 
-it('returns credentials value as array when using toArray method', function () {
+it('redacts the password when serialized to array', function () {
     $password = new Password(
         credentials: new SensitiveParameterValue('{"login":"john","password":"zer0day"}'),
     );
 
     expect($password->toArray())->toBe([
-        'credentials' => [
-            'login' => 'john',
-            'password' => 'zer0day',
-        ],
-    ]);
+        'login' => 'john',
+        'password' => '••••',
+    ])->and(json_encode($password))->not->toContain('zer0day');
 });
 
 it('creates instance from static method', function () {

@@ -34,8 +34,16 @@ if (! function_exists('snapshot')) {
     }
 }
 
+if (! function_exists('snapshotData')) {
+    /** @return array<mixed> */
+    function snapshotData(string $name): array
+    {
+        return json_decode((string) file_get_contents(__DIR__.'/snapshots/'.$name.'.json'), true);
+    }
+}
+
 if (! function_exists('github')) {
-    function github(?string $accessToken = null): Github
+    function github(?string $accessToken = 'token-value'): Github
     {
         return Registry::github(
             new Token(
@@ -46,7 +54,7 @@ if (! function_exists('github')) {
 }
 
 if (! function_exists('gitlab')) {
-    function gitlab(?string $accessToken = null): Gitlab
+    function gitlab(?string $accessToken = 'token-value'): Gitlab
     {
         return Registry::gitlab(
             new Token(
@@ -57,7 +65,7 @@ if (! function_exists('gitlab')) {
 }
 
 if (! function_exists('bitbucket')) {
-    function bitbucket(?string $accessToken = null): Bitbucket
+    function bitbucket(?string $accessToken = 'token-value'): Bitbucket
     {
         return Registry::bitbucket(
             new Token(

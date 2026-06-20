@@ -24,15 +24,16 @@ it('checks whethere credentials are of type', function () {
         ->isNot(BaseCredentials::class)->toBeFalse();
 });
 
-it('uses sensitive parameter value to store credentials but returns correct value when used with toArray', function () {
+it('redacts the secret when serialized to array', function () {
     $credentials = new BaseCredentials(
         new SensitiveParameterValue('my-value'),
     );
 
     expect($credentials->toArray())
-        ->toBeArray()
-        ->toHaveLength(1)
-        ->toBe([
-            'credentials' => 'my-value',
-        ]);
+        ->toBe(['credentials' => '••••'])
+        ->and(json_encode($credentials))->not->toContain('my-value');
+});
+
+it('serializes null credentials as null', function () {
+    expect((new BaseCredentials)->toArray())->toBe(['credentials' => null]);
 });
