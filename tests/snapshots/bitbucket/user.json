@@ -1,0 +1,9 @@
+{
+    "username": "john",
+    "uuid": "3df5334b-adec-4a5c-b8f5-fc784189355f",
+    "links": {
+        "avatar": {
+            "href": "https://bitbucket.com/avatar.jpg"
+        }
+    }
+}

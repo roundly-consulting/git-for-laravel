@@ -1,0 +1,189 @@
+{
+    "links": {
+        "self": {
+            "href": "<string>",
+            "name": "<string>"
+        },
+        "html": {
+            "href": "<string>",
+            "name": "<string>"
+        },
+        "avatar": {
+            "href": "<string>",
+            "name": "<string>"
+        },
+        "pullrequests": {
+            "href": "<string>",
+            "name": "<string>"
+        },
+        "commits": {
+            "href": "<string>",
+            "name": "<string>"
+        },
+        "forks": {
+            "href": "<string>",
+            "name": "<string>"
+        },
+        "watchers": {
+            "href": "<string>",
+            "name": "<string>"
+        },
+        "downloads": {
+            "href": "<string>",
+            "name": "<string>"
+        },
+        "clone": [
+            {
+                "href": "<string>",
+                "name": "<string>"
+            }
+        ],
+        "hooks": {
+            "href": "<string>",
+            "name": "<string>"
+        }
+    },
+    "uuid": "f3c99cd6-7522-4e0d-aaa1-a613c89117fd",
+    "full_name": "octocat/Hello-World",
+    "is_private": true,
+    "parent": {
+        "type": "<string>",
+        "links": {
+            "self": {
+                "href": "<string>",
+                "name": "<string>"
+            },
+            "html": {
+                "href": "<string>",
+                "name": "<string>"
+            },
+            "avatar": {
+                "href": "<string>",
+                "name": "<string>"
+            },
+            "pullrequests": {
+                "href": "<string>",
+                "name": "<string>"
+            },
+            "commits": {
+                "href": "<string>",
+                "name": "<string>"
+            },
+            "forks": {
+                "href": "<string>",
+                "name": "<string>"
+            },
+            "watchers": {
+                "href": "<string>",
+                "name": "<string>"
+            },
+            "downloads": {
+                "href": "<string>",
+                "name": "<string>"
+            },
+            "clone": [
+                {
+                    "href": "<string>",
+                    "name": "<string>"
+                }
+            ],
+            "hooks": {
+                "href": "<string>",
+                "name": "<string>"
+            }
+        },
+        "uuid": "<string>",
+        "full_name": "<string>",
+        "is_private": true,
+        "scm": "git",
+        "owner": {
+            "type": "<string>"
+        },
+        "name": "<string>",
+        "description": "<string>",
+        "created_on": "<string>",
+        "updated_on": "<string>",
+        "size": 2154,
+        "language": "<string>",
+        "has_issues": true,
+        "has_wiki": true,
+        "fork_policy": "allow_forks",
+        "project": {
+            "type": "<string>"
+        },
+        "mainbranch": {
+            "type": "<string>"
+        }
+    },
+    "scm": "git",
+    "owner": {
+        "type": "<string>",
+        "links": {
+            "avatar": {
+                "href": "https://bitbucket.com/images/error/octocat_happy.gif"
+            }
+        },
+        "created_on": "<string>",
+        "display_name": "<string>",
+        "username": "octocat",
+        "uuid": "9a550a83-d04b-4242-b264-a223a36503cb"
+    },
+    "name": "Hello World",
+    "description": "This your first repo!",
+    "created_on": "2011-01-26T19:01:12Z",
+    "updated_on": "2011-01-26T19:06:43Z",
+    "size": 2154,
+    "language": "<string>",
+    "has_issues": true,
+    "has_wiki": true,
+    "fork_policy": "allow_forks",
+    "project": {
+        "type": "<string>",
+        "links": {
+            "html": {
+                "href": "<string>",
+                "name": "<string>"
+            },
+            "avatar": {
+                "href": "<string>",
+                "name": "<string>"
+            }
+        },
+        "uuid": "<string>",
+        "key": "<string>",
+        "owner": {
+            "type": "<string>"
+        },
+        "name": "<string>",
+        "description": "<string>",
+        "is_private": true,
+        "created_on": "<string>",
+        "updated_on": "<string>",
+        "has_publicly_visible_repos": true
+    },
+    "mainbranch": {
+        "type": "<string>",
+        "links": {
+            "self": {
+                "href": "<string>",
+                "name": "<string>"
+            },
+            "commits": {
+                "href": "<string>",
+                "name": "<string>"
+            },
+            "html": {
+                "href": "<string>",
+                "name": "<string>"
+            }
+        },
+        "name": "main",
+        "target": {
+            "type": "<string>"
+        },
+        "merge_strategies": [
+            "merge_commit"
+        ],
+        "default_merge_strategy": "<string>"
+    }
+}
