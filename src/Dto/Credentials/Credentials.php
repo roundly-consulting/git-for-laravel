@@ -7,21 +7,11 @@ namespace RoundlyConsulting\Git\Dto\Credentials;
 use RoundlyConsulting\Git\Dto\Dto;
 use SensitiveParameterValue;
 
-/**
- * @phpstan-consistent-constructor
- */
 abstract readonly class Credentials extends Dto
 {
     public function __construct(
         public ?SensitiveParameterValue $credentials = null,
     ) {}
-
-    public static function from(mixed $value): static
-    {
-        return new static(
-            new SensitiveParameterValue($value),
-        );
-    }
 
     public function name(): string
     {

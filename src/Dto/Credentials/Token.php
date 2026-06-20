@@ -6,5 +6,5 @@ namespace RoundlyConsulting\Git\Dto\Credentials;
 
 final readonly class Token extends Credentials
 {
-    //
+    use BuildsFromSecret;
 }

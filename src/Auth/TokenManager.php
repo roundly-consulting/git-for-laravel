@@ -1,0 +1,133 @@
+<?php
+
+declare(strict_types=1);
+
+namespace RoundlyConsulting\Git\Auth;
+
+use Illuminate\Contracts\Cache\Repository as CacheRepository;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
+use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
+use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
+
+/**
+ * Mints and caches expiring access tokens for GitHub App installations and
+ * OAuth credentials, refreshing them transparently when they lapse.
+ */
+final class TokenManager
+{
+    /** Seconds shaved off the real expiry so a token is never used at the edge. */
+    private const SAFETY_MARGIN = 60;
+
+    public function installationToken(GithubAppToken $cred): string
+    {
+        $key = 'git:app:'.$cred->appId.':'.$cred->installationId;
+
+        /** @var array{token: string, expires_at: int}|null $cached */
+        $cached = $this->cache()->get($key);
+
+        if (is_array($cached) && $cached['expires_at'] > time()) {
+            return $cached['token'];
+        }
+
+        $jwt = (new GithubAppJwt($cred->appId, $cred->privateKey))->issue();
+
+        $response = Http::asJson()
+            ->acceptJson()
+            ->withToken($jwt)
+            ->post(rtrim($cred->baseUrl(), '/')."/app/installations/{$cred->installationId}/access_tokens");
+
+        $response->throw();
+
+        $token = $response->json('token');
+        $expiresAt = $response->json('expires_at');
+
+        if (! is_string($token) || $token === '') {
+            throw InvalidCredentialsException::invalidKey('the installation token response was malformed.');
+        }
+
+        $expiresTimestamp = is_string($expiresAt)
+            ? Carbon::parse($expiresAt)->getTimestamp()
+            : time() + 3600;
+
+        $this->store($key, $token, $expiresTimestamp);
+
+        return $token;
+    }
+
+    public function oauthToken(OauthToken $cred): string
+    {
+        $key = 'git:oauth:'.hash('sha256', $cred->refreshToken);
+
+        /** @var array{token: string, expires_at: int, refresh_token: string}|null $cached */
+        $cached = $this->cache()->get($key);
+
+        if (is_array($cached) && $cached['expires_at'] > time()) {
+            return $cached['token'];
+        }
+
+        if ($cached === null
+            && $cred->expiresAt !== null
+            && $cred->expiresAt->getTimestamp() - self::SAFETY_MARGIN > time()) {
+            return $cred->accessTokenValue;
+        }
+
+        return $this->refreshOauth($cred, $key);
+    }
+
+    private function refreshOauth(OauthToken $cred, string $key): string
+    {
+        $response = Http::asForm()
+            ->acceptJson()
+            ->post($cred->tokenUrl, [
+                'grant_type' => 'refresh_token',
+                'refresh_token' => $cred->refreshToken,
+                'client_id' => $cred->clientId,
+                'client_secret' => $cred->clientSecret,
+            ]);
+
+        $response->throw();
+
+        $token = $response->json('access_token');
+        $expiresIn = $response->json('expires_in');
+        $rotated = $response->json('refresh_token');
+
+        if (! is_string($token) || $token === '') {
+            throw InvalidCredentialsException::invalidKey('the OAuth refresh response was malformed.');
+        }
+
+        $expiresTimestamp = is_numeric($expiresIn) ? time() + (int) $expiresIn : time() + 3600;
+        $refreshToken = is_string($rotated) && $rotated !== '' ? $rotated : $cred->refreshToken;
+
+        $this->store($key, $token, $expiresTimestamp, $refreshToken);
+
+        // A rotated refresh token re-keys the cache so the next lookup hits.
+        if ($refreshToken !== $cred->refreshToken) {
+            $this->store('git:oauth:'.hash('sha256', $refreshToken), $token, $expiresTimestamp, $refreshToken);
+        }
+
+        return $token;
+    }
+
+    private function store(string $key, string $token, int $expiresAt, ?string $refreshToken = null): void
+    {
+        $payload = ['token' => $token, 'expires_at' => $expiresAt - self::SAFETY_MARGIN];
+
+        if ($refreshToken !== null) {
+            $payload['refresh_token'] = $refreshToken;
+        }
+
+        $ttl = max(1, $expiresAt - self::SAFETY_MARGIN - time());
+
+        $this->cache()->put($key, $payload, $ttl);
+    }
+
+    private function cache(): CacheRepository
+    {
+        $store = config('git.cache.store');
+
+        return is_string($store) && $store !== '' ? Cache::store($store) : Cache::store();
+    }
+}

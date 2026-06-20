@@ -15,6 +15,11 @@ final class InvalidCredentialsException extends Exception
         );
     }
 
+    public static function invalidKey(string $reason = 'The supplied private key could not be read.'): self
+    {
+        return new self("Invalid GitHub App private key: {$reason}");
+    }
+
     /** @param list<class-string> $supported */
     public static function unsupported(string $provider, string $credentials, array $supported): self
     {

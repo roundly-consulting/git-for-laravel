@@ -6,6 +6,8 @@ namespace RoundlyConsulting\Git\Dto\Credentials;
 
 final readonly class Password extends Credentials
 {
+    use BuildsFromSecret;
+
     public static function fromLoginAndPassword(string $login, string $password): self
     {
         return self::from(value: (string) json_encode([

@@ -6,5 +6,5 @@ namespace RoundlyConsulting\Git\Dto\Credentials;
 
 final readonly class PrivateKey extends Credentials
 {
-    //
+    use BuildsFromSecret;
 }
