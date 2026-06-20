@@ -1,0 +1,21 @@
+{
+    "object_kind": "push",
+    "ref": "refs/heads/main",
+    "user_name": "Jane",
+    "user_email": "jane@example.com",
+    "project": {
+        "id": 15,
+        "path_with_namespace": "acme/web",
+        "default_branch": "main",
+        "created_at": "2020-01-01T00:00:00Z"
+    },
+    "commits": [
+        {
+            "id": "def456",
+            "message": "Initial commit",
+            "url": "https://gitlab.com/acme/web/-/commit/def456",
+            "timestamp": "2020-01-02T00:00:00Z",
+            "author": { "name": "Jane", "email": "jane@example.com" }
+        }
+    ]
+}

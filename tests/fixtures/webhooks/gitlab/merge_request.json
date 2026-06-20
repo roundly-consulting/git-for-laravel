@@ -1,0 +1,19 @@
+{
+    "object_kind": "merge_request",
+    "project": {
+        "id": 15,
+        "path_with_namespace": "acme/web",
+        "default_branch": "main",
+        "created_at": "2020-01-01T00:00:00Z"
+    },
+    "object_attributes": {
+        "id": 99,
+        "iid": 4,
+        "title": "Add feature",
+        "description": "please merge",
+        "state": "merged",
+        "source_branch": "feature",
+        "target_branch": "main",
+        "created_at": "2020-01-01T00:00:00Z"
+    }
+}

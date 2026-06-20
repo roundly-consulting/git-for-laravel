@@ -1,0 +1,30 @@
+{
+    "actor": {
+        "display_name": "Brodie Rao",
+        "links": { "avatar": { "href": "https://avatar/brodie" } }
+    },
+    "repository": {
+        "uuid": "{85d08b4e-571d-44e9-a507-fa476535aa98}",
+        "full_name": "bitbucket/geordi",
+        "mainbranch": { "name": "main" },
+        "owner": { "uuid": "{owner}", "username": "bitbucket" },
+        "created_on": "2012-07-16T19:37:54+00:00",
+        "updated_on": "2012-07-16T19:37:54+00:00"
+    },
+    "push": {
+        "changes": [
+            {
+                "new": { "name": "main", "type": "branch" },
+                "commits": [
+                    {
+                        "hash": "f7591a13",
+                        "message": "Add a setting",
+                        "author": { "raw": "Brodie Rao <a@b.c>" },
+                        "date": "2012-07-16T19:37:54+00:00",
+                        "links": { "html": { "href": "https://bitbucket.org/x" } }
+                    }
+                ]
+            }
+        ]
+    }
+}

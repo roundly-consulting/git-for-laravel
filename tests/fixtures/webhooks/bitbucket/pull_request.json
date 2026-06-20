@@ -1,0 +1,21 @@
+{
+    "repository": {
+        "uuid": "{85d08b4e-571d-44e9-a507-fa476535aa98}",
+        "full_name": "bitbucket/geordi",
+        "mainbranch": { "name": "main" },
+        "owner": { "uuid": "{owner}", "username": "bitbucket" },
+        "created_on": "2012-07-16T19:37:54+00:00",
+        "updated_on": "2012-07-16T19:37:54+00:00"
+    },
+    "pullrequest": {
+        "id": 12,
+        "title": "Ship it",
+        "description": "ready",
+        "state": "OPEN",
+        "source": { "branch": { "name": "feature" } },
+        "destination": { "branch": { "name": "main" } },
+        "author": { "display_name": "Brodie Rao", "links": { "avatar": { "href": "a" } } },
+        "links": { "html": { "href": "https://bitbucket.org/pr/12" } },
+        "created_on": "2020-01-01T00:00:00+00:00"
+    }
+}
