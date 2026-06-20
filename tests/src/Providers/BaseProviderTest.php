@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\Git\Dto\Credentials\Token;
+use RoundlyConsulting\Git\Dto\Input\NewBranch;
 use RoundlyConsulting\Git\Dto\Input\NewRepository;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
@@ -54,7 +55,7 @@ it('throws feature not supported by default', function (array $setup) {
         'contributors' => [fn () => ['method' => 'contributors', 'props' => ['john/ok']]],
         'languages' => [fn () => ['method' => 'languages', 'props' => ['john/ok']]],
         'searchRepositories' => [fn () => ['method' => 'searchRepositories', 'props' => ['laravel']]],
-        'createBranch' => [fn () => ['method' => 'createBranch', 'props' => ['john/ok', new RoundlyConsulting\Git\Dto\Input\NewBranch('x', 'main')]]],
+        'createBranch' => [fn () => ['method' => 'createBranch', 'props' => ['john/ok', new NewBranch('x', 'main')]]],
         'createRepository' => [fn () => ['method' => 'createRepository', 'props' => [new NewRepository('x')]]],
     ]);
 
