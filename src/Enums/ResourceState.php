@@ -4,8 +4,12 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Enums;
 
+use RoundlyConsulting\Enums\Helpers;
+
 enum ResourceState: string
 {
+    use Helpers;
+
     case Open = 'open';
     case Closed = 'closed';
     case Merged = 'merged';
@@ -41,17 +45,6 @@ enum ResourceState: string
                 'declined', 'superseded' => self::Closed,
                 default => self::Unknown,
             },
-        };
-    }
-
-    public function label(): string
-    {
-        return match ($this) {
-            self::Open => 'Open',
-            self::Closed => 'Closed',
-            self::Merged => 'Merged',
-            self::Draft => 'Draft',
-            self::Unknown => 'Unknown',
         };
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Enums;
 
+use RoundlyConsulting\Enums\Helpers;
 use RoundlyConsulting\Git\Providers\BaseProvider;
 use RoundlyConsulting\Git\Providers\Bitbucket;
 use RoundlyConsulting\Git\Providers\Github;
@@ -11,6 +12,8 @@ use RoundlyConsulting\Git\Providers\Gitlab;
 
 enum ProviderName: string
 {
+    use Helpers;
+
     case Github = 'github';
     case Gitlab = 'gitlab';
     case Bitbucket = 'bitbucket';

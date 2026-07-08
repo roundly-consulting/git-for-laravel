@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Enums;
 
+use RoundlyConsulting\Enums\Helpers;
 use RoundlyConsulting\Git\Dto\FeatureInfo;
 
 enum Feature: string
 {
+    use Helpers;
+
     case ListRepositories = 'repositories';
     case FindRepository = 'repository';
     case ListCommits = 'commits';
