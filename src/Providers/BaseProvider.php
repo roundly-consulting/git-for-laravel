@@ -46,7 +46,6 @@ use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
-use RoundlyConsulting\Git\Exceptions\RateLimitExceededException;
 use RoundlyConsulting\Git\Http\ConditionalCache;
 use RoundlyConsulting\Git\Http\RateLimitStatusParser;
 use RoundlyConsulting\Git\Interfaces\Provider;
@@ -451,8 +450,6 @@ abstract class BaseProvider implements Provider
      */
     protected function client(): PendingRequest
     {
-        $this->enforceRateLimit($this->key(), $this->rateLimitFromConfig($this->key()));
-
         /** @var array<string, mixed> $http */
         $http = config("git.providers.{$this->key()}", []);
 
@@ -504,24 +501,31 @@ abstract class BaseProvider implements Provider
      */
     private function resolveChunk(array $chunk): array
     {
-        // Account for every pooled request up front so client-side quota stays
-        // accurate. If the limiter trips, the remaining keys fail softly.
+        // Account for every pooled request up front through the rate limiter so
+        // client-side quota stays accurate. Once the window is exhausted the
+        // remaining keys fail softly as rate-limited batch errors instead of
+        // hammering the provider.
+        $rateLimit = $this->rateLimiter($this->key());
         $allowed = [];
         $limited = [];
 
         foreach ($chunk as $key => $spec) {
-            if (! empty($limited)) {
+            if ($limited !== []) {
                 $limited[$key] = $spec;
 
                 continue;
             }
 
-            try {
-                $this->enforceRateLimit($this->key(), $this->rateLimitFromConfig($this->key()));
-                $allowed[$key] = $spec;
-            } catch (RateLimitExceededException) {
+            if ($rateLimit !== null && $rateLimit->tooManyAttempts()) {
                 $limited[$key] = $spec;
+
+                continue;
             }
+
+            // Record the hit up front; the request itself is sent below without
+            // the limiter so the store is never double-counted.
+            $rateLimit?->handle(static fn (): null => null);
+            $allowed[$key] = $spec;
         }
 
         $outcomes = [];
@@ -651,7 +655,7 @@ abstract class BaseProvider implements Provider
         }
 
         $start = microtime(true);
-        $response = $request->get($url, $query);
+        $response = $this->throttled($this->key(), fn (): Response => $request->get($url, $query));
         $this->log('GET', $url, $response->status(), $start);
         $this->captureRateLimit($response);
 
@@ -680,7 +684,10 @@ abstract class BaseProvider implements Provider
     protected function send(string $method, string $url, array $payload = []): Response
     {
         $start = microtime(true);
-        $response = $this->client()->send($method, $url, ['json' => $payload]);
+        $response = $this->throttled(
+            $this->key(),
+            fn (): Response => $this->client()->send($method, $url, ['json' => $payload]),
+        );
         $this->log($method, $url, $response->status(), $start);
         $this->captureRateLimit($response);
 

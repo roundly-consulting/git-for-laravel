@@ -23,9 +23,18 @@ return [
                 'backoff' => env('GITHUB_RETRY_BACKOFF', 0),
             ],
             'rateLimits' => [
+                // false = send with no client-side limiter at all.
+                'enabled' => env('GITHUB_RATELIMIT_ENABLED', true),
                 'owner' => env('GITHUB_RATELIMIT_OWNER', 'app'),
                 'maxAttempts' => env('GITHUB_RATELIMIT', 5000),
+                // second | minute | hour | day
                 'timespan' => env('GITHUB_RATELIMIT_TIMESPAN', 'hour'),
+                // Honour the provider's own Retry-After / X-RateLimit-* headers.
+                'adaptive' => env('GITHUB_RATELIMIT_ADAPTIVE', true),
+                // Max defer in ms before failing fast (null = wait/pace forever).
+                'max_wait' => env('GITHUB_RATELIMIT_MAX_WAIT'),
+                // Random jitter in ms added to each defer (null = none).
+                'jitter' => env('GITHUB_RATELIMIT_JITTER'),
             ],
             'options' => [
                 'headers' => [
@@ -61,9 +70,13 @@ return [
                 'backoff' => env('GITLAB_RETRY_BACKOFF', 0),
             ],
             'rateLimits' => [
+                'enabled' => env('GITLAB_RATELIMIT_ENABLED', true),
                 'owner' => env('GITLAB_RATELIMIT_OWNER', 'app'),
                 'maxAttempts' => env('GITLAB_RATELIMIT', 10),
                 'timespan' => env('GITLAB_RATELIMIT_TIMESPAN', 'second'),
+                'adaptive' => env('GITLAB_RATELIMIT_ADAPTIVE', true),
+                'max_wait' => env('GITLAB_RATELIMIT_MAX_WAIT'),
+                'jitter' => env('GITLAB_RATELIMIT_JITTER'),
             ],
             'options' => [
                 'headers' => [
@@ -89,9 +102,13 @@ return [
                 'backoff' => env('BITBUCKET_RETRY_BACKOFF', 0),
             ],
             'rateLimits' => [
+                'enabled' => env('BITBUCKET_RATELIMIT_ENABLED', true),
                 'owner' => env('BITBUCKET_RATELIMIT_OWNER', 'app'),
                 'maxAttempts' => env('BITBUCKET_RATELIMIT', 1000),
                 'timespan' => env('BITBUCKET_RATELIMIT_TIMESPAN', 'hour'),
+                'adaptive' => env('BITBUCKET_RATELIMIT_ADAPTIVE', true),
+                'max_wait' => env('BITBUCKET_RATELIMIT_MAX_WAIT'),
+                'jitter' => env('BITBUCKET_RATELIMIT_JITTER'),
             ],
             'options' => [
                 'headers' => [

@@ -4,44 +4,82 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Concerns;
 
-use Illuminate\Support\Facades\RateLimiter;
-use RoundlyConsulting\Git\Dto\RateLimit;
-use RoundlyConsulting\Git\Enums\Timespan;
+use Closure;
+use Illuminate\Http\Client\Response;
 use RoundlyConsulting\Git\Exceptions\RateLimitExceededException;
+use RoundlyConsulting\HttpClientRateLimits\Enums\Timespan;
+use RoundlyConsulting\HttpClientRateLimits\Exceptions\RateLimitExceededException as HttpRateLimitExceededException;
+use RoundlyConsulting\HttpClientRateLimits\Limit;
+use RoundlyConsulting\HttpClientRateLimits\RateLimit;
 
 trait InteractsWithRateLimits
 {
     /**
-     * Block the current call when the configured client-side limit is hit.
+     * Build the client-side rate limiter for a provider from its config, or
+     * null when the host has disabled throttling for it.
      *
-     * Throttling is enforced with Laravel's native rate limiter so host apps
-     * stay within the upstream provider's quota without a third-party package.
+     * Requests are paced (the limiter waits until the window frees up) rather
+     * than hard-failing; set a `max_wait` to fail fast instead. With `adaptive`
+     * on (the default) the limiter also honours the provider's own
+     * `Retry-After` / `X-RateLimit-*` headers.
      */
-    protected function enforceRateLimit(string $provider, RateLimit $limit): void
+    protected function rateLimiter(string $provider): ?RateLimit
     {
-        $key = "git:{$provider}:{$limit->key}";
-
-        if (RateLimiter::tooManyAttempts($key, $limit->maxAttempts)) {
-            throw RateLimitExceededException::for(
-                provider: $provider,
-                availableInSeconds: RateLimiter::availableIn($key),
-            );
-        }
-
-        RateLimiter::hit($key, $limit->decaySeconds());
-    }
-
-    protected function rateLimitFromConfig(string $provider): RateLimit
-    {
-        /** @var array{owner?: string, maxAttempts?: int|string, timespan?: string} $config */
+        /** @var array<string, mixed> $config */
         $config = config("git.providers.{$provider}.rateLimits", []);
 
-        $timespan = (string) ($config['timespan'] ?? 'minute');
+        if (($config['enabled'] ?? true) === false) {
+            return null;
+        }
 
-        return new RateLimit(
-            key: $config['owner'] ?? 'app',
+        $timespan = Timespan::tryFrom((string) ($config['timespan'] ?? 'minute')) ?? Timespan::Minute;
+        $owner = (string) ($config['owner'] ?? 'app');
+
+        $rateLimit = RateLimit::make(new Limit(
             maxAttempts: (int) ($config['maxAttempts'] ?? 60),
-            timespan: Timespan::tryFrom($timespan) ?? (is_numeric($timespan) ? (int) $timespan : Timespan::Minute),
-        );
+            timespan: $timespan,
+        ))->by("git:{$provider}:{$owner}");
+
+        if (($config['adaptive'] ?? true) === true) {
+            $rateLimit->adaptive();
+        }
+
+        if (isset($config['max_wait']) && is_numeric($config['max_wait'])) {
+            $rateLimit->maxWait((int) $config['max_wait']);
+        }
+
+        if (isset($config['jitter']) && is_numeric($config['jitter'])) {
+            $rateLimit->jitter((int) $config['jitter']);
+        }
+
+        return $rateLimit;
+    }
+
+    /**
+     * Send an HTTP request through the provider's rate limiter, translating the
+     * limiter's own exhaustion exception into git's public typed exception so
+     * downstream `catch (RateLimitExceededException)` keeps working.
+     *
+     * @param  Closure(): Response  $send
+     */
+    protected function throttled(string $provider, Closure $send): Response
+    {
+        $rateLimit = $this->rateLimiter($provider);
+
+        if ($rateLimit === null) {
+            return $send();
+        }
+
+        try {
+            /** @var Response $response */
+            $response = $rateLimit->handle($send);
+
+            return $response;
+        } catch (HttpRateLimitExceededException $exception) {
+            throw RateLimitExceededException::for(
+                provider: $provider,
+                availableInSeconds: (int) ceil($exception->delayMs / 1000),
+            );
+        }
     }
 }

@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Exceptions\BatchRequestException;
 use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
+use RoundlyConsulting\HttpClientRateLimits\Facades\RateLimits;
 
 function repoBody(string $id, string $fullName): array
 {
@@ -145,4 +146,23 @@ it('reports rate-limited keys without throwing the whole batch', function () {
     expect($result->results())->toHaveKey('acme/api')
         ->and($result->errors())->toHaveKey('acme/web')
         ->and($result->errors()['acme/web']->message)->toBe('rate limited');
+});
+
+it('accounts pooled requests through the rate limiter', function () {
+    config()->set('git.providers.github.rateLimits', ['owner' => 'app', 'maxAttempts' => 1, 'timespan' => 'hour']);
+
+    $limiter = RateLimits::fake();
+
+    Http::fake([
+        '*/repos/acme/api' => Http::response(repoBody('1', 'acme/api'), 200, ['X-RateLimit-Remaining' => '4999']),
+        '*/repos/acme/web' => Http::response(repoBody('2', 'acme/web')),
+    ]);
+
+    $provider = github();
+    $result = $provider->batch()->repositories(['acme/api', 'acme/web']);
+
+    expect($result->errors()['acme/web']->message)->toBe('rate limited')
+        ->and($provider->rateLimit())->not->toBeNull();
+
+    $limiter->assertAllowed('git:github:app');
 });
