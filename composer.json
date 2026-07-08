@@ -18,12 +18,40 @@
             "role": "Developer"
         }
     ],
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../enums-for-laravel*",
+            "options": {
+                "symlink": true
+            }
+        },
+        {
+            "type": "path",
+            "url": "../http-client-rate-limits-for-laravel*",
+            "options": {
+                "symlink": true
+            }
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/roundly-consulting/enums-for-laravel",
+            "no-api": true
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/roundly-consulting/http-client-rate-limits-for-laravel",
+            "no-api": true
+        }
+    ],
     "require": {
         "php": "^8.4",
         "ext-openssl": "*",
         "illuminate/contracts": "^12.0|^13.0",
         "illuminate/http": "^12.0|^13.0",
-        "illuminate/support": "^12.0|^13.0"
+        "illuminate/support": "^12.0|^13.0",
+        "roundly-consulting/enums-for-laravel": "@dev",
+        "roundly-consulting/http-client-rate-limits-for-laravel": "@dev"
     },
     "require-dev": {
         "larastan/larastan": "^3.0",
@@ -69,6 +97,6 @@
             }
         }
     },
-    "minimum-stability": "stable",
+    "minimum-stability": "dev",
     "prefer-stable": true
 }
