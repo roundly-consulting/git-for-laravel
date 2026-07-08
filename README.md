@@ -58,9 +58,13 @@ return [
                 'backoff' => env('GITHUB_RETRY_BACKOFF', 0),
             ],
             'rateLimits' => [
+                'enabled' => env('GITHUB_RATELIMIT_ENABLED', true),
                 'owner' => env('GITHUB_RATELIMIT_OWNER', 'app'),
                 'maxAttempts' => env('GITHUB_RATELIMIT', 5000),
                 'timespan' => env('GITHUB_RATELIMIT_TIMESPAN', 'hour'),
+                'adaptive' => env('GITHUB_RATELIMIT_ADAPTIVE', true),
+                'max_wait' => env('GITHUB_RATELIMIT_MAX_WAIT'), // ms; null = wait/pace
+                'jitter' => env('GITHUB_RATELIMIT_JITTER'),      // ms; null = none
             ],
             'options' => ['headers' => [/* User-Agent, X-GitHub-Api-Version */]],
 
@@ -94,9 +98,13 @@ return [
 | `providers.<name>.webhook_secret` | string\|null | `null` | Secret used to verify incoming webhooks. |
 | `providers.<name>.timeout` | int | `10` | HTTP request timeout in seconds. |
 | `providers.<name>.retry` | array\|int | `{times:1, backoff:0}` | Retry attempts and backoff (ms) for 429/5xx. |
-| `providers.<name>.rateLimits.owner` | string | `app` | Client-side throttle bucket key. |
+| `providers.<name>.rateLimits.enabled` | bool | `true` | Client-side throttling on/off; `false` sends with no limiter. |
+| `providers.<name>.rateLimits.owner` | string | `app` | Client-side throttle bucket key (`git:<provider>:<owner>`). |
 | `providers.<name>.rateLimits.maxAttempts` | int | provider quota | Max requests per timespan. |
 | `providers.<name>.rateLimits.timespan` | string | provider window | `second`, `minute`, `hour`, or `day`. |
+| `providers.<name>.rateLimits.adaptive` | bool | `true` | Honour the provider's own `Retry-After` / `X-RateLimit-*` headers. |
+| `providers.<name>.rateLimits.max_wait` | int\|null | `null` | Max defer in ms before failing fast; `null` waits/paces instead. |
+| `providers.<name>.rateLimits.jitter` | int\|null | `null` | Random jitter in ms added to each defer. |
 | `cache.enabled` | bool | `false` | Store ETags and serve `304 Not Modified` from cache. |
 | `cache.store` | string\|null | default store | Cache store used for conditional requests. |
 | `cache.ttl` | int | `3600` | Cached-response TTL in seconds. |
@@ -123,8 +131,30 @@ Environment variables: `GITHUB_TOKEN`, `GITLAB_TOKEN`, `BITBUCKET_TOKEN`,
 > App and OAuth tokens are cached so they survive across requests; point `cache.store` at a
 > shared store (Redis, database, file) rather than the `array` driver when you use them.
 
-Rate limiting is enforced client-side with Laravel's native rate limiter; exceeding the
-configured budget throws a `RateLimitExceededException` before a request is sent.
+Rate limiting is enforced client-side by [`http-client-rate-limits-for-laravel`](https://github.com/roundly-consulting/http-client-rate-limits-for-laravel).
+By default requests are **paced** — when a provider's window is exhausted the call waits until
+the window frees up rather than failing. Set `max_wait` (ms) to fail fast instead: a defer that
+would exceed it throws git's typed `RateLimitExceededException`. With `adaptive` on (the default)
+the limiter also reads each provider's own `Retry-After` / `X-RateLimit-*` response headers and
+backs off exactly as the server asks — complementing the server-status snapshot exposed by
+`$provider->rateLimit()`.
+
+The limiter defaults to an in-memory store (per process — fine for CLI and single-worker use).
+For a quota **shared across workers or servers**, register the provider package and point its
+`http-client-rate-limits.store` at a `CacheStore`, `RedisStore`, or `DatabaseStore`
+(`HTTP_CLIENT_RATE_LIMITS_STORE`); git does not force a store.
+
+## Integrates with
+
+git-for-laravel builds on two other roundly-consulting packages, each a hard dependency wired by
+path locally and VCS on CI until they publish to Packagist:
+
+- **[enums-for-laravel](https://github.com/roundly-consulting/enums-for-laravel)** — powers the
+  `Feature`, `ProviderName`, and `ResourceState` enums with `values()`, `labels()`, `options()`,
+  `validationRule()`, and case lookups.
+- **[http-client-rate-limits-for-laravel](https://github.com/roundly-consulting/http-client-rate-limits-for-laravel)**
+  — the client-side outbound rate limiter (pacing, adaptive `Retry-After` back-off, jitter,
+  compound windows, and shared Cache/Redis/DB stores) behind every provider request.
 
 ## Usage
 
@@ -268,9 +298,11 @@ $github->deleteWebhook('acme/acme', $webhook->id);
 
 ### Resilience, caching, and rate limits
 
-`client()` retries idempotent 429/5xx responses with backoff. With `cache.enabled`, ETags are
-stored and conditional requests serve `304` responses from cache. The last response's rate
-limit is exposed:
+Requests retry idempotent 429/5xx responses with backoff and are paced by the client-side rate
+limiter (see [Configuration](#configuration)) — waiting when a window is exhausted, failing fast
+with `RateLimitExceededException` only when a `max_wait` is set, and adapting to the provider's
+own `Retry-After` headers. With `cache.enabled`, ETags are stored and conditional requests serve
+`304` responses from cache. The last response's server-reported rate limit is exposed:
 
 ```php
 $status = $github->rateLimit(); // ?RateLimitStatus { limit, remaining, used, resetAt }
