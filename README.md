@@ -146,9 +146,14 @@ For a quota **shared across workers or servers**, register the provider package 
 
 ## Integrates with
 
-git-for-laravel builds on two other roundly-consulting packages, each a hard dependency wired by
+git-for-laravel builds on three other roundly-consulting packages, each a hard dependency wired by
 path locally and VCS on CI until they publish to Packagist:
 
+- **[crypto-for-laravel](https://github.com/roundly-consulting/crypto-for-laravel)** — owns every
+  cryptographic primitive git uses: the HMAC-SHA256 + constant-time compare behind webhook
+  signature verification, and the RS256 JWS that authenticates a GitHub App. git re-implements no
+  crypto of its own (an architecture test enforces it) and reads its key material from its own
+  config — crypto itself is zero-config.
 - **[enums-for-laravel](https://github.com/roundly-consulting/enums-for-laravel)** — powers the
   `Feature`, `ProviderName`, and `ResourceState` enums with `values()`, `labels()`, `options()`,
   `validationRule()`, and case lookups.
@@ -320,7 +325,9 @@ $url = $github->cloneUrlForRepository('octocat/Hello-World', 'octocat', Token::f
 Static `Token` credentials never expire, but GitHub App installation tokens and OAuth access
 tokens do. `GithubAppToken` and `OauthToken` mint, cache, and refresh the access token
 transparently — reads, writes, and batches all benefit, with secrets redacted from any
-serialization. The App JWT is signed natively with `openssl_sign` (no third-party JWT library).
+serialization. The App JWT is a real RS256 JWS, signed through
+[crypto-for-laravel](https://github.com/roundly-consulting/crypto-for-laravel) — no third-party
+JWT library.
 
 ```php
 use RoundlyConsulting\Git\Dto\Credentials\{GithubAppToken, OauthToken};
@@ -371,7 +378,9 @@ Event::listen(PullRequestEventReceived::class, function (PullRequestEventReceive
 });
 ```
 
-A missing or invalid signature returns `403` and dispatches nothing.
+A missing or invalid signature returns `403` and dispatches nothing. The HMAC is computed over the
+**raw** request body and compared in constant time (via crypto-for-laravel), so a forged payload
+never reaches your listeners and a partially-correct signature leaks nothing through timing.
 
 ### Webhook auto-registration
 
