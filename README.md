@@ -139,6 +139,17 @@ the limiter also reads each provider's own `Retry-After` / `X-RateLimit-*` respo
 backs off exactly as the server asks — complementing the server-status snapshot exposed by
 `$provider->rateLimit()`.
 
+That exception carries the wait as a retry hint via the toolkit's `HasRetryAfter` contract, so a
+host can translate any throttled roundly package into a `Retry-After` header the same way:
+
+```php
+use RoundlyConsulting\PackageToolkit\Contracts\HasRetryAfter;
+
+if ($e instanceof HasRetryAfter) {
+    return response('Too Many Requests', 429, ['Retry-After' => $e->retryAfterSeconds()]);
+}
+```
+
 The limiter defaults to an in-memory store (per process — fine for CLI and single-worker use).
 For a quota **shared across workers or servers**, register the provider package and point its
 `http-client-rate-limits.store` at a `CacheStore`, `RedisStore`, or `DatabaseStore`
@@ -146,9 +157,13 @@ For a quota **shared across workers or servers**, register the provider package 
 
 ## Integrates with
 
-git-for-laravel builds on three other roundly-consulting packages, each a hard dependency wired by
+git-for-laravel builds on four other roundly-consulting packages, each a hard dependency wired by
 path locally and VCS on CI until they publish to Packagist:
 
+- **[package-toolkit-for-laravel](https://github.com/roundly-consulting/package-toolkit-for-laravel)**
+  — the service provider is built on the toolkit's package builder, so the config/routes/commands
+  wiring and the `git-config` / `git-routes` publish tags are declared once. It also contributes a
+  `php artisan about` section and backs the `Retry-After` hint on `RateLimitExceededException`.
 - **[crypto-for-laravel](https://github.com/roundly-consulting/crypto-for-laravel)** — owns every
   cryptographic primitive git uses: the HMAC-SHA256 + constant-time compare behind webhook
   signature verification, and the RS256 JWS that authenticates a GitHub App. git re-implements no
