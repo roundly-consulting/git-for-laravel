@@ -2,33 +2,38 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Crypto\Codec\Base64Url;
+use RoundlyConsulting\Crypto\Jose\Jws;
+use RoundlyConsulting\Crypto\Signature\Algorithm;
+use RoundlyConsulting\Crypto\Signature\InvalidSignatureException;
+use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
+use RoundlyConsulting\Crypto\Signature\Rs;
 use RoundlyConsulting\Git\Auth\GithubAppJwt;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 
+/** @return array{0: string, 1: string} */
 function generateRsaKeypair(): array
 {
-    $resource = openssl_pkey_new([
-        'private_key_bits' => 2048,
-        'private_key_type' => OPENSSL_KEYTYPE_RSA,
-    ]);
+    $key = RsaKey::generate();
 
-    openssl_pkey_export($resource, $privateKey);
-    $details = openssl_pkey_get_details($resource);
-
-    return [$privateKey, $details['key']];
+    return [$key->privatePem(), $key->publicPem()];
 }
 
+/** @return array<string, mixed> */
 function decodeSegment(string $segment): array
 {
-    return json_decode(base64_decode(strtr($segment, '-_', '+/'), true), true);
+    /** @var array<string, mixed> $decoded */
+    $decoded = json_decode(Base64Url::decode($segment), true);
+
+    return $decoded;
 }
 
-it('issues a verifiable RS256 jwt', function () {
+it('issues an rs256 jws that verifies against the matching public key', function (): void {
     [$privateKey, $publicKey] = generateRsaKeypair();
 
     $jwt = (new GithubAppJwt('123456', $privateKey))->issue(540);
 
-    [$header, $claims, $signature] = explode('.', $jwt);
+    [$header, $claims] = explode('.', $jwt);
 
     $decodedHeader = decodeSegment($header);
     $decodedClaims = decodeSegment($claims);
@@ -38,29 +43,62 @@ it('issues a verifiable RS256 jwt', function () {
         ->and($decodedClaims['iss'])->toBe('123456')
         ->and($decodedClaims['exp'] - $decodedClaims['iat'])->toBe(600);
 
-    $verified = openssl_verify(
-        "{$header}.{$claims}",
-        base64_decode(strtr($signature, '-_', '+/'), true),
-        $publicKey,
-        OPENSSL_ALGO_SHA256,
-    );
+    // The token GitHub receives must be a valid RS256 JWS: pinned alg, real signature.
+    $verified = (new Jws)->verify($jwt, new Rs(RsaKey::public($publicKey)), Algorithm::RS256);
 
-    expect($verified)->toBe(1);
+    expect($verified->get('iss'))->toBe('123456');
 });
 
-it('throws on a malformed private key', function () {
+it('rejects the token when verified with an unrelated public key', function (): void {
+    [$privateKey] = generateRsaKeypair();
+    [, $otherPublicKey] = generateRsaKeypair();
+
+    $jwt = (new GithubAppJwt('123456', $privateKey))->issue();
+
+    expect(fn () => (new Jws)->verify($jwt, new Rs(RsaKey::public($otherPublicKey)), Algorithm::RS256))
+        ->toThrow(InvalidSignatureException::class);
+});
+
+it('backdates iat by a minute to absorb clock skew', function (): void {
+    [$privateKey] = generateRsaKeypair();
+
+    $before = time();
+    $jwt = (new GithubAppJwt('123456', $privateKey))->issue(300);
+    $claims = decodeSegment(explode('.', $jwt)[1]);
+
+    expect($claims['iat'])->toBeLessThanOrEqual($before - 60)
+        ->and($claims['exp'] - $claims['iat'])->toBe(360);
+});
+
+it('throws on a malformed private key', function (): void {
     expect(fn () => (new GithubAppJwt('123', 'not-a-key'))->issue())
         ->toThrow(InvalidCredentialsException::class);
 });
 
-it('reads a private key from a file path', function () {
+it('throws on a public key supplied where a private key is required', function (): void {
+    [, $publicKey] = generateRsaKeypair();
+
+    expect(fn () => (new GithubAppJwt('123', $publicKey))->issue())
+        ->toThrow(InvalidCredentialsException::class);
+});
+
+it('surfaces a crypto failure during signing as an invalid-credentials exception', function (): void {
     [$privateKey] = generateRsaKeypair();
-    $path = tempnam(sys_get_temp_dir(), 'pem');
+
+    // An app id that is not valid UTF-8 cannot be encoded into the JWS payload;
+    // crypto raises a MalformedTokenException and the boundary translates it.
+    expect(fn () => (new GithubAppJwt("\xB1\x31", $privateKey))->issue())
+        ->toThrow(InvalidCredentialsException::class, 'signing failed.');
+});
+
+it('reads a private key from a file path', function (): void {
+    [$privateKey] = generateRsaKeypair();
+    $path = (string) tempnam(sys_get_temp_dir(), 'pem');
     file_put_contents($path, $privateKey);
 
     $jwt = (new GithubAppJwt('123', $path))->issue();
 
-    expect($jwt)->toContain('.');
+    expect(explode('.', $jwt))->toHaveCount(3);
 
     unlink($path);
 });
