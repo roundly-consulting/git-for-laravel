@@ -78,7 +78,7 @@ trait InteractsWithRateLimits
         } catch (HttpRateLimitExceededException $exception) {
             throw RateLimitExceededException::for(
                 provider: $provider,
-                availableInSeconds: (int) ceil($exception->delayMs / 1000),
+                retryAfterSeconds: (int) ceil($exception->delayMs / 1000),
             );
         }
     }

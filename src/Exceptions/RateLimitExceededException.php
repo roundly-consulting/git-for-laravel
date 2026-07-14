@@ -5,13 +5,19 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Git\Exceptions;
 
 use Exception;
+use RoundlyConsulting\PackageToolkit\Concerns\ProvidesRetryAfter;
+use RoundlyConsulting\PackageToolkit\Contracts\HasRetryAfter;
 
-final class RateLimitExceededException extends Exception
+final class RateLimitExceededException extends Exception implements HasRetryAfter
 {
-    public static function for(string $provider, int $availableInSeconds): self
+    use ProvidesRetryAfter;
+
+    public static function for(string $provider, int $retryAfterSeconds): self
     {
-        return new self(
-            "Rate limit for provider [{$provider}] exceeded. Retry in {$availableInSeconds} second(s)."
+        $exception = new self(
+            "Rate limit for provider [{$provider}] exceeded. Retry in {$retryAfterSeconds} second(s)."
         );
+
+        return $exception->withRetryAfter($retryAfterSeconds);
     }
 }

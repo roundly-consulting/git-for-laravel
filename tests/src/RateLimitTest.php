@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Git\Exceptions\RateLimitExceededException;
 use RoundlyConsulting\HttpClientRateLimits\Facades\RateLimits;
+use RoundlyConsulting\PackageToolkit\Contracts\HasRetryAfter;
 
 it('records a hit through the rate limiter on an allowed request', function () {
     $limiter = RateLimits::fake();
@@ -101,4 +102,31 @@ it('keeps a separate budget per provider', function () {
 
     $limiter->assertDeferred('git:github:app')
         ->assertAllowed('git:gitlab:app');
+});
+
+it('carries a retry-after hint on the typed exception', function () {
+    config()->set('git.providers.github.rateLimits', [
+        'owner' => 'app',
+        'maxAttempts' => 1,
+        'timespan' => 'hour',
+        'max_wait' => 0,
+    ]);
+
+    RateLimits::fake();
+
+    Http::fake(['*/user' => snapshot('github/user')]);
+
+    github()->user();
+
+    try {
+        github()->user();
+    } catch (RateLimitExceededException $exception) {
+        expect($exception)->toBeInstanceOf(HasRetryAfter::class)
+            ->and($exception->retryAfterSeconds())->toBeGreaterThan(0)
+            ->and($exception->getMessage())->toContain('Rate limit for provider [github] exceeded');
+
+        return;
+    }
+
+    $this->fail('The rate limiter did not fail fast.');
 });
