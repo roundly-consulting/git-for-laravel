@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git;
 
-use Illuminate\Support\ServiceProvider;
 use RoundlyConsulting\Git\Auth\TokenManager;
 use RoundlyConsulting\Git\Commands\CommitsCommand;
 use RoundlyConsulting\Git\Commands\RateLimitCommand;
@@ -16,12 +15,34 @@ use RoundlyConsulting\Git\Mapping\GitlabMapper;
 use RoundlyConsulting\Git\Webhooks\Mapping\BitbucketWebhookMapper;
 use RoundlyConsulting\Git\Webhooks\Mapping\GithubWebhookMapper;
 use RoundlyConsulting\Git\Webhooks\Mapping\GitlabWebhookMapper;
+use RoundlyConsulting\PackageToolkit\Package;
+use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
 
-final class GitServiceProvider extends ServiceProvider
+final class GitServiceProvider extends PackageServiceProvider
 {
+    public function configurePackage(Package $package): void
+    {
+        $package
+            ->name('git')
+            ->hasConfigFile()
+            ->hasRoutes('git-webhooks.php', 'git.webhooks.enabled')
+            ->hasCommands([
+                ReposCommand::class,
+                RateLimitCommand::class,
+                CommitsCommand::class,
+                WebhookCommand::class,
+            ])
+            ->contributesToAbout(static fn (): array => [
+                'Providers' => self::credentialedProviders(),
+                'Rate limiting' => self::throttledProviders(),
+                'Webhooks' => config('git.webhooks.enabled') ? (string) config('git.webhooks.path', 'git/webhooks') : 'OFF',
+                'Conditional caching' => config('git.cache.enabled') ? 'ON' : 'OFF',
+            ]);
+    }
+
     public function register(): void
     {
-        $this->mergeConfigFrom(__DIR__.'/../config/git.php', 'git');
+        parent::register();
 
         $this->app->singleton(Registry::class);
 
@@ -36,27 +57,40 @@ final class GitServiceProvider extends ServiceProvider
         $this->app->singleton(TokenManager::class);
     }
 
-    public function boot(): void
+    /**
+     * The providers a host has actually given a default credential, so `about`
+     * shows which ones work without an explicit token.
+     */
+    private static function credentialedProviders(): string
     {
-        if (config('git.webhooks.enabled')) {
-            $this->loadRoutesFrom(__DIR__.'/../routes/webhooks.php');
-        }
+        $configured = array_keys(array_filter(
+            self::providers(),
+            static fn (array $provider): bool => is_string($provider['token'] ?? null) && $provider['token'] !== '',
+        ));
 
-        if ($this->app->runningInConsole()) {
-            $this->commands([
-                ReposCommand::class,
-                RateLimitCommand::class,
-                CommitsCommand::class,
-                WebhookCommand::class,
-            ]);
+        return $configured === [] ? 'NONE' : implode(', ', $configured);
+    }
 
-            $this->publishes([
-                __DIR__.'/../config/git.php' => config_path('git.php'),
-            ], 'git-config');
+    /**
+     * The providers still paced by the client-side limiter, so `about` shows at
+     * a glance which ones a host has switched off.
+     */
+    private static function throttledProviders(): string
+    {
+        $enabled = array_keys(array_filter(
+            self::providers(),
+            static fn (array $provider): bool => ($provider['rateLimits']['enabled'] ?? true) !== false,
+        ));
 
-            $this->publishes([
-                __DIR__.'/../routes/webhooks.php' => base_path('routes/git-webhooks.php'),
-            ], 'git-routes');
-        }
+        return $enabled === [] ? 'OFF' : implode(', ', $enabled);
+    }
+
+    /** @return array<string, array<string, mixed>> */
+    private static function providers(): array
+    {
+        /** @var array<string, array<string, mixed>> $providers */
+        $providers = config('git.providers', []);
+
+        return $providers;
     }
 }

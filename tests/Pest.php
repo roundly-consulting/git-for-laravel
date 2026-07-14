@@ -26,6 +26,7 @@ uses(TestCase::class)->in(
     __DIR__.'/src/RateLimitTest.php',
     __DIR__.'/src/ResilienceTest.php',
     __DIR__.'/src/WebhookRouteTest.php',
+    __DIR__.'/src/ServiceProviderTest.php',
     __DIR__.'/src/CapabilityMatrixTest.php',
     __DIR__.'/src/AppAuthTest.php',
     __DIR__.'/ArchTest.php',

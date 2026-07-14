@@ -157,7 +157,8 @@ return [
     |
     */
     'webhooks' => [
-        'enabled' => env('GIT_WEBHOOKS_ENABLED', false),
+        // Cast so a `0`/`1` style env still reads as a strict boolean.
+        'enabled' => (bool) env('GIT_WEBHOOKS_ENABLED', false),
         'path' => env('GIT_WEBHOOKS_PATH', 'git/webhooks'),
         'middleware' => ['api'],
     ],
