@@ -4,13 +4,19 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Auth;
 
-use OpenSSLAsymmetricKey;
+use RoundlyConsulting\Crypto\Exceptions\CryptoException;
+use RoundlyConsulting\Crypto\Jose\Jws;
+use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
+use RoundlyConsulting\Crypto\Signature\Rs;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use SensitiveParameter;
 
 /**
  * Mints the short-lived RS256 JWT GitHub Apps use to authenticate as the app
- * itself, signed natively with openssl_sign — no third-party JWT library.
+ * itself. The JOSE serialization and the RSA signature come from
+ * crypto-for-laravel; what stays here is GitHub's claim contract (iat backdated
+ * a minute for clock skew, exp, and the app id as issuer) and git's own key
+ * resolution — a PEM string or a path to one.
  */
 final class GithubAppJwt
 {
@@ -19,51 +25,44 @@ final class GithubAppJwt
         #[SensitiveParameter] private readonly string $privateKey,
     ) {}
 
+    /**
+     * @throws InvalidCredentialsException when the private key is unusable or signing fails
+     */
     public function issue(int $ttlSeconds = 540): string
     {
         $now = time();
+        $signer = new Rs($this->key());
 
-        $header = $this->b64(['alg' => 'RS256', 'typ' => 'JWT']);
-        $claims = $this->b64([
-            'iat' => $now - 60,
-            'exp' => $now + $ttlSeconds,
-            'iss' => $this->appId,
-        ]);
-
-        $signingInput = "{$header}.{$claims}";
-
-        $signature = '';
-
-        if (openssl_sign($signingInput, $signature, $this->privateKeyResource(), OPENSSL_ALGO_SHA256) !== true) {
+        try {
+            return (new Jws)->sign(
+                header: [],
+                payload: [
+                    // GitHub tolerates a small clock drift; backdating iat keeps a
+                    // slightly fast clock from minting a not-yet-valid token.
+                    'iat' => $now - 60,
+                    'exp' => $now + $ttlSeconds,
+                    'iss' => $this->appId,
+                ],
+                signer: $signer,
+            );
+        } catch (CryptoException) {
             throw InvalidCredentialsException::invalidKey('signing failed.');
         }
-
-        return "{$signingInput}.".$this->b64url($signature);
     }
 
-    /** @param array<string, mixed> $payload */
-    private function b64(array $payload): string
-    {
-        return $this->b64url((string) json_encode($payload));
-    }
-
-    private function b64url(string $value): string
-    {
-        return rtrim(strtr(base64_encode($value), '+/', '-_'), '=');
-    }
-
-    private function privateKeyResource(): OpenSSLAsymmetricKey
+    /**
+     * @throws InvalidCredentialsException
+     */
+    private function key(): RsaKey
     {
         $pem = is_file($this->privateKey)
             ? (string) file_get_contents($this->privateKey)
             : $this->privateKey;
 
-        $key = openssl_pkey_get_private($pem);
-
-        if ($key === false) {
+        try {
+            return RsaKey::private($pem);
+        } catch (CryptoException) {
             throw InvalidCredentialsException::invalidKey();
         }
-
-        return $key;
     }
 }
