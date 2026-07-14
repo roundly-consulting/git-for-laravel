@@ -34,6 +34,13 @@
             }
         },
         {
+            "type": "path",
+            "url": "../crypto-for-laravel*",
+            "options": {
+                "symlink": true
+            }
+        },
+        {
             "type": "vcs",
             "url": "https://github.com/roundly-consulting/enums-for-laravel",
             "no-api": true
@@ -42,14 +49,19 @@
             "type": "vcs",
             "url": "https://github.com/roundly-consulting/http-client-rate-limits-for-laravel",
             "no-api": true
+        },
+        {
+            "type": "vcs",
+            "url": "https://github.com/roundly-consulting/crypto-for-laravel",
+            "no-api": true
         }
     ],
     "require": {
         "php": "^8.4",
-        "ext-openssl": "*",
         "illuminate/contracts": "^12.0|^13.0",
         "illuminate/http": "^12.0|^13.0",
         "illuminate/support": "^12.0|^13.0",
+        "roundly-consulting/crypto-for-laravel": "@dev",
         "roundly-consulting/enums-for-laravel": "@dev",
         "roundly-consulting/http-client-rate-limits-for-laravel": "@dev"
     },
@@ -78,7 +90,7 @@
         "format": "vendor/bin/pint",
         "analyse": "vendor/bin/phpstan analyse --no-progress",
         "test": "vendor/bin/pest",
-        "test-coverage": "vendor/bin/pest --coverage --min=90"
+        "test-coverage": "vendor/bin/pest --coverage --min=95"
     },
     "config": {
         "sort-packages": true,
