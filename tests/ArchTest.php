@@ -29,18 +29,30 @@ ArchPresets::strictTypes('RoundlyConsulting\Git');
  *    forge's behaviour without forking the registry;
  *  - `Registry` is the manager those drivers are resolved from;
  *  - `Batch` is extended by the providers' own batch builders.
+ *
+ * The list goes through the `$ignoring` PARAMETER, not Pest's fluent `->ignoring()`. This
+ * is the fleet's largest exemption set, which is exactly where the fluent form's two
+ * silent costs bite hardest:
+ *
+ *  - it is NOT rot-checked. Eight `::class` constants that PHP resolves to strings at
+ *    compile time, so a rename leaves a green exemption that silences nothing and a ban
+ *    that quietly applies where nobody expects it;
+ *  - it forfeits the shadow recovery. Pest matches exemptions by string PREFIX
+ *    (pest-plugin-arch Blueprint.php:103), so `Batch::class` also silences `BatchError`
+ *    and `BatchResult` — two classes nobody exempted. Through the parameter,
+ *    `finalByDefault` re-checks them by reflection; both are final, so this is green
+ *    today and stays a guard against either being opened later.
  */
-ArchPresets::finalByDefault('RoundlyConsulting\Git')
-    ->ignoring([
-        BaseProvider::class,
-        Github::class,
-        Gitlab::class,
-        Bitbucket::class,
-        Query::class,
-        Registry::class,
-        Batch::class,
-        RoundlyConsulting\Git\Facades\Registry::class,
-    ]);
+ArchPresets::finalByDefault('RoundlyConsulting\Git', [
+    BaseProvider::class,
+    Github::class,
+    Gitlab::class,
+    Bitbucket::class,
+    Query::class,
+    Registry::class,
+    Batch::class,
+    RoundlyConsulting\Git\Facades\Registry::class,
+]);
 
 /**
  * The crypto-bearing namespaces get the full preset — every primitive AND base64.
