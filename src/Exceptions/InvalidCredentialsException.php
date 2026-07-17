@@ -20,6 +20,14 @@ final class InvalidCredentialsException extends Exception
         return new self("Invalid GitHub App private key: {$reason}");
     }
 
+    public static function missingOauthConfig(string $provider, string $key): self
+    {
+        return new self(
+            "Provider [{$provider}] has no OAuth {$key} configured. Set [git.providers.{$provider}.oauth.{$key}], ".
+            'or pass the value explicitly to OauthToken::for().'
+        );
+    }
+
     /** @param list<class-string> $supported */
     public static function unsupported(string $provider, string $credentials, array $supported): self
     {

@@ -117,8 +117,8 @@ return [
 | `providers.github.app.id` | string\|null | `null` | GitHub App id; when set, `Registry::github()` mints installation tokens. |
 | `providers.github.app.installation_id` | string\|null | `null` | GitHub App installation id. |
 | `providers.github.app.private_key` | string\|null | `null` | GitHub App private key — a PEM string or a file path. |
-| `providers.<name>.oauth.client_id` | string\|null | `null` | OAuth client id for refresh-token grants. |
-| `providers.<name>.oauth.client_secret` | string\|null | `null` | OAuth client secret. |
+| `providers.<name>.oauth.client_id` | string\|null | `null` | OAuth client id, read by `OauthToken::forProvider()`. |
+| `providers.<name>.oauth.client_secret` | string\|null | `null` | OAuth client secret, read by `OauthToken::forProvider()`. |
 | `providers.<name>.oauth.token_url` | string | provider token URL | OAuth token endpoint used to refresh access tokens. |
 
 Environment variables: `GITHUB_TOKEN`, `GITLAB_TOKEN`, `BITBUCKET_TOKEN`,
@@ -346,6 +346,8 @@ JWT library.
 
 ```php
 use RoundlyConsulting\Git\Dto\Credentials\{GithubAppToken, OauthToken};
+use RoundlyConsulting\Git\Enums\ProviderName;
+use RoundlyConsulting\Git\Enums\ProviderName;
 
 $github = Registry::github(GithubAppToken::for(
     appId: config('git.providers.github.app.id'),
@@ -354,11 +356,12 @@ $github = Registry::github(GithubAppToken::for(
 ));
 $github->repositories(); // installation token minted, cached to expiry, reused
 
-$github = Registry::github(OauthToken::for(
-    accessToken: $access, refreshToken: $refresh,
-    clientId: $clientId, clientSecret: $secret,
-    tokenUrl: config('git.providers.github.oauth.token_url'),
-    expiresAt: $expiresAt,
+// The OAuth client (`client_id`, `client_secret`, `token_url`) is static per provider, so
+// `forProvider()` takes it from `git.providers.github.oauth.*` and asks only for the
+// per-user half. Pass all five to `OauthToken::for()` to bypass config entirely.
+$github = Registry::github(OauthToken::forProvider(
+    ProviderName::Github,
+    accessToken: $access, refreshToken: $refresh, expiresAt: $expiresAt,
 ));
 ```
 
