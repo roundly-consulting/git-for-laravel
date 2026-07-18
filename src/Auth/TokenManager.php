@@ -8,9 +8,11 @@ use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Crypto\Hash\Digest;
 use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
+use SensitiveParameter;
 
 /**
  * Mints and caches expiring access tokens for GitHub App installations and
@@ -59,7 +61,7 @@ final class TokenManager
 
     public function oauthToken(OauthToken $cred): string
     {
-        $key = 'git:oauth:'.hash('sha256', $cred->refreshToken);
+        $key = $this->oauthCacheKey($cred->refreshToken);
 
         /** @var array{token: string, expires_at: int, refresh_token: string}|null $cached */
         $cached = $this->cache()->get($key);
@@ -105,10 +107,25 @@ final class TokenManager
 
         // A rotated refresh token re-keys the cache so the next lookup hits.
         if ($refreshToken !== $cred->refreshToken) {
-            $this->store('git:oauth:'.hash('sha256', $refreshToken), $token, $expiresTimestamp, $refreshToken);
+            $this->store($this->oauthCacheKey($refreshToken), $token, $expiresTimestamp, $refreshToken);
         }
 
         return $token;
+    }
+
+    /**
+     * The cache key for a refresh token, which is digested rather than embedded so a
+     * live credential never lands in a cache key.
+     *
+     * `Digest` is crypto's deterministic-digest primitive — `hash('sha256', …)` verbatim,
+     * so the keys are byte-identical to the ones the two inlined calls this replaces
+     * produced. It exists as one method rather than two inlined calls because the two
+     * had to agree: the rotation path re-keys the cache, and a drift between them would
+     * strand the rotated token under a key the next lookup never reads.
+     */
+    private function oauthCacheKey(#[SensitiveParameter] string $refreshToken): string
+    {
+        return 'git:oauth:'.(new Digest)->hex($refreshToken);
     }
 
     private function store(string $key, string $token, int $expiresAt, ?string $refreshToken = null): void

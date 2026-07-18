@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Git\Http;
 
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Support\Facades\Cache;
+use RoundlyConsulting\Crypto\Hash\Digest;
 use SensitiveParameter;
 
 /**
@@ -23,11 +24,19 @@ final class ConditionalCache
         return (bool) config('git.cache.enabled', false);
     }
 
+    /**
+     * The token is digested rather than used directly so a credential never lands in a
+     * cache key, and `Digest` is crypto's deterministic-digest primitive — the one its
+     * docblock names cache keys as the use case for. It is `hash('sha256', …)` verbatim,
+     * so the keys are byte-identical to the ones this method returned before.
+     */
     public function key(string $url, #[SensitiveParameter] ?string $token): string
     {
-        $identity = hash('sha256', (string) $token);
+        $digest = new Digest;
 
-        return "git:cache:{$this->provider}:".hash('sha256', $url).":{$identity}";
+        $identity = $digest->hex((string) $token);
+
+        return "git:cache:{$this->provider}:".$digest->hex($url).":{$identity}";
     }
 
     /** @return array{etag: string, body: string}|null */
