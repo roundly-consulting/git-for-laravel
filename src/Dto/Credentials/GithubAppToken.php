@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Git\Dto\Credentials;
 
 use RoundlyConsulting\Git\Auth\TokenManager;
 use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
+use RoundlyConsulting\Git\Dto\Input\InstallationTokenScope;
 use SensitiveParameter;
 
 final readonly class GithubAppToken extends Credentials implements RefreshableCredentials
@@ -15,6 +16,7 @@ final readonly class GithubAppToken extends Credentials implements RefreshableCr
         public string $installationId,
         #[SensitiveParameter] public string $privateKey,
         public ?string $apiBaseUrl = null,
+        public ?InstallationTokenScope $scope = null,
     ) {
         parent::__construct(null);
     }
@@ -24,8 +26,20 @@ final readonly class GithubAppToken extends Credentials implements RefreshableCr
         string $installationId,
         #[SensitiveParameter] string $privateKey,
         ?string $apiBaseUrl = null,
+        ?InstallationTokenScope $scope = null,
     ): self {
-        return new self($appId, $installationId, $privateKey, $apiBaseUrl);
+        return new self($appId, $installationId, $privateKey, $apiBaseUrl, $scope);
+    }
+
+    /**
+     * The same credential, narrowed to a scope.
+     *
+     * Returns a NEW instance — the DTO is readonly, and a caller that scopes a
+     * credential must not silently narrow one somebody else is holding.
+     */
+    public function forScope(InstallationTokenScope $scope): self
+    {
+        return new self($this->appId, $this->installationId, $this->privateKey, $this->apiBaseUrl, $scope);
     }
 
     public function accessToken(): string
@@ -46,6 +60,10 @@ final readonly class GithubAppToken extends Credentials implements RefreshableCr
             'installationId' => $this->installationId,
             'privateKey' => '••••',
             'apiBaseUrl' => $this->apiBaseUrl,
+            // The digest, not the repository list: this is what the token cache is
+            // keyed on, so it is the value you want when a mint hit or missed
+            // unexpectedly. The list itself is on the scope if you need it.
+            'scope' => $this->scope?->digest(),
         ];
     }
 }

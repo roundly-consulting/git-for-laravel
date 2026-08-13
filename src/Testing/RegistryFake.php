@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Git\Testing;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Assert;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
+use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Interfaces\Provider;
 use RoundlyConsulting\Git\Providers\Bitbucket;
@@ -28,6 +29,11 @@ final class RegistryFake extends Registry
     }
 
     public function github(?Credentials $credentials = null): ProviderFake
+    {
+        return $this->fakeFor(ProviderName::Github);
+    }
+
+    public function githubApp(?GithubApp $credentials = null): ProviderFake
     {
         return $this->fakeFor(ProviderName::Github);
     }

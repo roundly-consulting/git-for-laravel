@@ -13,6 +13,7 @@ use RoundlyConsulting\Git\Dto\Credentials\Credentials;
 use RoundlyConsulting\Git\Dto\FeatureInfo;
 use RoundlyConsulting\Git\Dto\FileContent;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
+use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\Page;
 use RoundlyConsulting\Git\Dto\RateLimitStatus;
@@ -108,4 +109,21 @@ interface Provider
     public function commit(string $path, string $commit): Commit;
 
     public function cloneUrlForRepository(string $path, string $username, Credentials $credentials): string;
+
+    /**
+     * The repositories reachable by the credential's own installation.
+     *
+     * On the shared interface (rather than only on the GitHub provider) so a host
+     * application can drive it through `Registry::fake()`. Providers without app
+     * installations answer `FeatureNotSupportedException`.
+     *
+     * @return Page<Repository>
+     */
+    public function installationRepositories(int $perPage = 30): Page;
+
+    /** @return LazyCollection<int, Repository> */
+    public function allInstallationRepositories(int $perPage = 30): LazyCollection;
+
+    /** One app installation, looked up as the app itself. */
+    public function installation(string $id): Installation;
 }

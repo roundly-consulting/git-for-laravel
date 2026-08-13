@@ -50,6 +50,18 @@ return [
                 'id' => env('GITHUB_APP_ID'),
                 'installation_id' => env('GITHUB_APP_INSTALLATION_ID'),
                 'private_key' => env('GITHUB_APP_PRIVATE_KEY'),
+                // The app's public slug, from https://github.com/apps/<slug>. Only an
+                // install URL needs it, but it lives here so the whole app contract is
+                // one config block rather than half of it in each consumer.
+                'slug' => env('GITHUB_APP_SLUG'),
+                // The default scope for a per-operation mint. Narrowing at mint time is
+                // the point of an installation token; this is the set a clone + push +
+                // pull-request workflow needs, and nothing else.
+                'permissions' => [
+                    'contents' => 'write',
+                    'pull_requests' => 'write',
+                    'metadata' => 'read',
+                ],
             ],
 
             // OAuth credentials (self-refreshing access tokens).

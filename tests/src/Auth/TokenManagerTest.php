@@ -2,12 +2,15 @@
 
 declare(strict_types=1);
 
+use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Git\Auth\TokenManager;
 use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
+use RoundlyConsulting\Git\Dto\Input\InstallationTokenScope;
+use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 
 function appCredentials(): GithubAppToken
 {
@@ -99,4 +102,97 @@ it('surfaces an upstream mint error', function () {
 
     expect(fn () => app(TokenManager::class)->installationToken(appCredentials()))
         ->toThrow(RequestException::class);
+});
+
+it('mints a repository-scoped token, sending exactly the requested scope', function () {
+    Http::fake([
+        '*/app/installations/999/access_tokens' => Http::response([
+            'token' => 'ghs_scoped',
+            'expires_at' => Carbon::now()->addHour()->toIso8601String(),
+        ]),
+    ]);
+
+    $cred = appCredentials()->forScope(new InstallationTokenScope(
+        repositoryIds: ['40823311'],
+        permissions: ['contents' => 'write', 'pull_requests' => 'write'],
+    ));
+
+    expect(app(TokenManager::class)->installationToken($cred))->toBe('ghs_scoped');
+
+    Http::assertSent(fn (Request $request): bool => $request->data() === [
+        'repository_ids' => [40823311],
+        'permissions' => ['contents' => 'write', 'pull_requests' => 'write'],
+    ]);
+});
+
+it('sends a repository NAME selector without its owner prefix', function () {
+    Http::fake([
+        '*/app/installations/999/access_tokens' => Http::response([
+            'token' => 'ghs_named',
+            'expires_at' => Carbon::now()->addHour()->toIso8601String(),
+        ]),
+    ]);
+
+    $cred = appCredentials()->forScope(new InstallationTokenScope(repositories: ['acme-inc/platform-api']));
+
+    app(TokenManager::class)->installationToken($cred);
+
+    // GitHub 422s on "owner/name" here — the installation already names the account.
+    Http::assertSent(fn (Request $request): bool => $request->data() === ['repositories' => ['platform-api']]);
+});
+
+it('keys the cache per scope so a scoped mint never receives a wider token', function () {
+    Http::fake([
+        '*/app/installations/999/access_tokens' => Http::sequence()
+            ->push(['token' => 'wide', 'expires_at' => Carbon::now()->addHour()->toIso8601String()])
+            ->push(['token' => 'narrow', 'expires_at' => Carbon::now()->addHour()->toIso8601String()])
+            ->push(['token' => 'other', 'expires_at' => Carbon::now()->addHour()->toIso8601String()]),
+    ]);
+
+    $manager = app(TokenManager::class);
+
+    expect($manager->installationToken(appCredentials()))->toBe('wide')
+        ->and($manager->installationToken(appCredentials()->forScope(new InstallationTokenScope(repositoryIds: ['1']))))->toBe('narrow')
+        ->and($manager->installationToken(appCredentials()->forScope(new InstallationTokenScope(repositoryIds: ['2']))))->toBe('other');
+
+    Http::assertSentCount(3);
+});
+
+it('hits one cache entry for the same scope written in a different order', function () {
+    Http::fake([
+        '*/app/installations/999/access_tokens' => Http::response([
+            'token' => 'ghs_once',
+            'expires_at' => Carbon::now()->addHour()->toIso8601String(),
+        ]),
+    ]);
+
+    $manager = app(TokenManager::class);
+
+    $manager->installationToken(appCredentials()->forScope(new InstallationTokenScope(
+        repositoryIds: ['1', '2'],
+        permissions: ['contents' => 'write', 'metadata' => 'read'],
+    )));
+
+    $manager->installationToken(appCredentials()->forScope(new InstallationTokenScope(
+        repositoryIds: ['2', '1'],
+        permissions: ['metadata' => 'read', 'contents' => 'write'],
+    )));
+
+    Http::assertSentCount(1);
+});
+
+it('reports a vanished installation as a credential failure', function () {
+    Http::fake(['*/app/installations/999/access_tokens' => Http::response([], 404)]);
+
+    expect(fn () => app(TokenManager::class)->installationToken(appCredentials()))
+        ->toThrow(InvalidCredentialsException::class);
+});
+
+it('reports a refused scope as a credential failure', function () {
+    Http::fake(['*/app/installations/999/access_tokens' => Http::response([], 422)]);
+
+    $cred = appCredentials()->forScope(new InstallationTokenScope(repositoryIds: ['404']));
+
+    expect(fn () => app(TokenManager::class)->installationToken($cred))
+        ->toThrow(InvalidCredentialsException::class);
 });

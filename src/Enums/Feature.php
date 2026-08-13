@@ -39,6 +39,9 @@ enum Feature: string
     case CreateWebhook = 'create_webhook';
     case DeleteWebhook = 'delete_webhook';
     case ListWebhooks = 'list_webhooks';
+    case FindInstallation = 'installation';
+    case ListInstallations = 'installations';
+    case ListInstallationRepositories = 'installation_repositories';
 
     public function description(): string
     {
@@ -71,6 +74,9 @@ enum Feature: string
             self::CreateWebhook => 'Register a repository webhook.',
             self::DeleteWebhook => 'Remove a repository webhook.',
             self::ListWebhooks => 'List the webhooks registered on a repository.',
+            self::FindInstallation => 'Get a single app installation (authenticated as the app itself).',
+            self::ListInstallations => 'List every account this app is installed on (authenticated as the app itself).',
+            self::ListInstallationRepositories => 'List the repositories one installation can reach.',
         };
     }
 

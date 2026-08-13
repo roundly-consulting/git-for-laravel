@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Git;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Traits\Macroable;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
+use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
 use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
 use RoundlyConsulting\Git\Enums\ProviderName;
@@ -24,6 +25,26 @@ class Registry
     public function github(?Credentials $credentials = null): Provider|Github
     {
         return $this->provider(ProviderName::Github, $credentials);
+    }
+
+    /**
+     * The GitHub provider authenticated as the APP itself (its RS256 JWT), rather than
+     * as one of its installations.
+     *
+     * This is what the `/app/**` endpoints need — chiefly looking an installation up to
+     * verify it before trusting an id that arrived from a browser. Defaults to the
+     * configured app; a deployment with no app configured gets `null` credentials and
+     * therefore an unauthenticated provider, which fails the guard rather than
+     * silently falling back to the static token.
+     */
+    public function githubApp(?GithubApp $credentials = null): Provider|Github
+    {
+        $credentials ??= $this->appCredentials(ProviderName::Github);
+
+        /** @var Github $instance */
+        $instance = resolve(ProviderName::Github->providerClass());
+
+        return $credentials === null ? $instance : $instance->authenticate($credentials);
     }
 
     public function gitlab(?Credentials $credentials = null): Provider|Gitlab
@@ -78,6 +99,25 @@ class Registry
         Facade::clearResolvedInstance(self::class);
 
         return $fake;
+    }
+
+    /** The configured app credentials for a provider, when it has an app at all. */
+    protected function appCredentials(ProviderName $provider): ?GithubApp
+    {
+        $key = $provider->key();
+
+        $appId = config("git.providers.{$key}.app.id");
+        $privateKey = config("git.providers.{$key}.app.private_key");
+
+        if (! is_string($appId) || $appId === '' || ! is_string($privateKey) || $privateKey === '') {
+            return null;
+        }
+
+        return GithubApp::for(
+            appId: $appId,
+            privateKey: $privateKey,
+            apiBaseUrl: is_string($url = config("git.providers.{$key}.url")) ? $url : null,
+        );
     }
 
     protected function defaultCredentials(ProviderName $provider): ?Credentials

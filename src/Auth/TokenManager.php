@@ -25,7 +25,7 @@ final class TokenManager
 
     public function installationToken(GithubAppToken $cred): string
     {
-        $key = 'git:app:'.$cred->appId.':'.$cred->installationId;
+        $key = $this->installationCacheKey($cred);
 
         /** @var array{token: string, expires_at: int}|null $cached */
         $cached = $this->cache()->get($key);
@@ -39,7 +39,28 @@ final class TokenManager
         $response = Http::asJson()
             ->acceptJson()
             ->withToken($jwt)
-            ->post(rtrim($cred->baseUrl(), '/')."/app/installations/{$cred->installationId}/access_tokens");
+            ->post(
+                rtrim($cred->baseUrl(), '/')."/app/installations/{$cred->installationId}/access_tokens",
+                $cred->scope?->toPayload() ?? [],
+            );
+
+        // The two failure modes a SCOPED mint adds, surfaced as the exception every
+        // consumer of this package already catches. Letting `throw()` raise a raw
+        // RequestException instead means a caller has to read a status code out of an
+        // HTTP exception to tell "the app was uninstalled" from "the network blipped".
+        if ($response->status() === 404) {
+            throw InvalidCredentialsException::installationUnavailable(
+                $cred->installationId,
+                'it no longer exists — the app was uninstalled, or this id belongs to another app.',
+            );
+        }
+
+        if ($response->status() === 422 || $response->status() === 403) {
+            throw InvalidCredentialsException::installationUnavailable(
+                $cred->installationId,
+                'the requested scope was refused — a repository is outside the installation, or a permission was never granted.',
+            );
+        }
 
         $response->throw();
 
@@ -111,6 +132,22 @@ final class TokenManager
         }
 
         return $token;
+    }
+
+    /**
+     * The cache key for an installation token.
+     *
+     * The SCOPE is part of the key. Without it a repository-scoped mint would be
+     * served the installation-wide token a previous caller cached — silently handing
+     * back a credential for every repository in the installation, which is exactly the
+     * property scoping exists to remove. An unscoped credential keeps the historical
+     * key, so nothing already cached is stranded.
+     */
+    private function installationCacheKey(GithubAppToken $cred): string
+    {
+        $key = 'git:app:'.$cred->appId.':'.$cred->installationId;
+
+        return $cred->scope === null ? $key : $key.':'.$cred->scope->digest();
     }
 
     /**

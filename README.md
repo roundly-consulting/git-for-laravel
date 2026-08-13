@@ -73,6 +73,12 @@ return [
                 'id' => env('GITHUB_APP_ID'),
                 'installation_id' => env('GITHUB_APP_INSTALLATION_ID'),
                 'private_key' => env('GITHUB_APP_PRIVATE_KEY'), // PEM string or file path
+                'slug' => env('GITHUB_APP_SLUG'),               // builds the install URL
+                'permissions' => [                               // default scope for a per-operation mint
+                    'contents' => 'write',
+                    'pull_requests' => 'write',
+                    'metadata' => 'read',
+                ],
             ],
             // OAuth credentials (self-refreshing access tokens).
             'oauth' => [
@@ -124,7 +130,7 @@ return [
 Environment variables: `GITHUB_TOKEN`, `GITLAB_TOKEN`, `BITBUCKET_TOKEN`,
 `*_WEBHOOK_SECRET`, `GIT_CACHE_ENABLED`, `GIT_LOGGING_ENABLED`, `GIT_WEBHOOKS_ENABLED`,
 `GIT_WEBHOOKS_PATH`, `GIT_BATCH_CONCURRENCY`, `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`,
-`GITHUB_APP_PRIVATE_KEY`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`,
+`GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_SLUG`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`,
 `GITHUB_OAUTH_TOKEN_URL` (plus the GitLab equivalents), and the per-provider
 `*_RETRY_TIMES` / `*_RETRY_BACKOFF` / timeout / rate-limit keys.
 
@@ -335,6 +341,14 @@ $url = $github->cloneUrlForRepository('octocat/Hello-World', 'octocat', Token::f
 // https://token:ghp_...@github.com/octocat/Hello-World.git
 ```
 
+A refreshable credential is asked for a live token instead of being read for a static one, and
+an installation token gets GitHub's documented username:
+
+```php
+$url = $github->cloneUrlForRepository('octocat/Hello-World', 'octocat', $installationCredentials);
+// https://x-access-token:ghs_...@github.com/octocat/Hello-World.git
+```
+
 ### Self-refreshing GitHub App / OAuth credentials
 
 Static `Token` credentials never expire, but GitHub App installation tokens and OAuth access
@@ -368,6 +382,55 @@ $github = Registry::github(OauthToken::forProvider(
 When `git.providers.github.app.id` is configured, `Registry::github()` builds a
 `GithubAppToken` automatically — no explicit credential needed. Use a shared cache store (not
 the `array` driver) so minted tokens persist across requests.
+
+#### Repository-scoped tokens
+
+An installation token with no scope reaches **every** repository the app is installed on, for
+an hour. Narrow it per operation instead — this is the point of minting rather than storing a
+credential:
+
+```php
+use RoundlyConsulting\Git\Dto\Input\InstallationTokenScope;
+
+$scoped = GithubAppToken::for(appId: $id, installationId: $installation, privateKey: $key)
+    ->forScope(InstallationTokenScope::forRepositories(repositoryIds: ['40823311']));
+
+Registry::github($scoped)->cloneUrlForRepository('acme/api', 'acme', $scoped);
+```
+
+`forRepositories()` takes the permission set from `git.providers.github.app.permissions`.
+Either selector works — `repositoryIds` (numeric, survives a rename) or `repositories`
+(names) — and they are equally narrow; an **empty** scope is not, so check
+`InstallationTokenScope::isEmpty()` and refuse rather than mint wide. The token cache is keyed
+per scope, so a scoped mint can never be served a wider cached token. A scope the installation
+cannot satisfy (unknown repository, ungranted permission) and a vanished installation both
+raise `InvalidCredentialsException`.
+
+#### Acting as the app, and installing it
+
+`/app/**` endpoints authenticate with the app's own JWT rather than an installation token.
+That is how you verify an installation id before trusting it — for instance one that arrived
+from a browser redirect:
+
+```php
+$installation = Registry::githubApp()->installation($installationIdFromTheRedirect);
+
+$installation->accountLogin;            // "acme-inc"
+$installation->repositorySelection;     // "all" | "selected"
+$installation->reachesEveryRepository();
+$installation->isSuspended();
+
+Registry::github($credentials)->installationRepositories(); // NOT /user/repos: an
+                                                            // installation token 403s there
+```
+
+Send a human to install the app with `installUrl()`; GitHub echoes `state` back to the app's
+Setup URL alongside `installation_id`, which is what ties the redirect that returns to the
+request that left:
+
+```php
+$url = Registry::githubApp()->installUrl($state); // https://github.com/apps/<slug>/installations/new?state=…
+```
 
 ### Webhooks
 

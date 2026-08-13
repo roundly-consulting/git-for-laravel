@@ -33,6 +33,7 @@ use RoundlyConsulting\Git\Dto\Input\NewRepository;
 use RoundlyConsulting\Git\Dto\Input\NewTag;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\Input\UpdatedFile;
+use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Issue;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\Page;
@@ -266,6 +267,23 @@ abstract class BaseProvider implements Provider
     }
 
     public function cloneUrlForRepository(string $path, string $username, Credentials $credentials): string
+    {
+        $this->featureNotSupported();
+    }
+
+    /** @return Page<Repository> */
+    public function installationRepositories(int $perPage = 30): Page
+    {
+        $this->featureNotSupported();
+    }
+
+    /** @return LazyCollection<int, Repository> */
+    public function allInstallationRepositories(int $perPage = 30): LazyCollection
+    {
+        $this->featureNotSupported();
+    }
+
+    public function installation(string $id): Installation
     {
         $this->featureNotSupported();
     }

@@ -16,6 +16,7 @@ use RoundlyConsulting\Git\Dto\FeatureInfo;
 use RoundlyConsulting\Git\Dto\FileContent;
 use RoundlyConsulting\Git\Dto\Input\NewRepository;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
+use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\Page;
 use RoundlyConsulting\Git\Dto\RateLimitStatus;
@@ -78,6 +79,13 @@ final class ProviderFake implements Provider
     public function seedRepository(Repository $repository): self
     {
         $this->seeded['repository'] = $repository;
+
+        return $this;
+    }
+
+    public function seedInstallation(Installation $installation): self
+    {
+        $this->seeded['installation'] = $installation;
 
         return $this;
     }
@@ -157,6 +165,49 @@ final class ProviderFake implements Provider
         $items = $this->seeded['repositories'] ?? [];
 
         return LazyCollection::make($items);
+    }
+
+    /**
+     * The repositories one installation can reach.
+     *
+     * Seeded from the SAME bucket as `repositories()` on purpose: a host application
+     * swapping a PAT for a GitHub App changes which endpoint it calls, not which
+     * repositories the test is about, and two buckets would let a test seed one and
+     * assert the other.
+     *
+     * @return Page<Repository>
+     */
+    public function installationRepositories(int $perPage = 30): Page
+    {
+        $this->record('installationRepositories', [$perPage]);
+
+        /** @var list<Repository> $items */
+        $items = $this->seeded['repositories'] ?? [];
+
+        return new Page(items: $items, perPage: $perPage, page: 1, hasMore: false);
+    }
+
+    /** @return LazyCollection<int, Repository> */
+    public function allInstallationRepositories(int $perPage = 30): LazyCollection
+    {
+        $this->record('allInstallationRepositories', [$perPage]);
+
+        /** @var list<Repository> $items */
+        $items = $this->seeded['repositories'] ?? [];
+
+        return LazyCollection::make($items);
+    }
+
+    public function installation(string $id): Installation
+    {
+        $this->record('installation', [$id]);
+
+        if (! isset($this->seeded['installation'])) {
+            throw new RuntimeException("No installation seeded on the [{$this->name()}] fake.");
+        }
+
+        /** @var Installation */
+        return $this->seeded['installation'];
     }
 
     public function repository(string $path): Repository

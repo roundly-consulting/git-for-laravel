@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Git\Providers;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\LazyCollection;
+use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
 use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
@@ -13,6 +14,7 @@ use RoundlyConsulting\Git\Dto\Comparison;
 use RoundlyConsulting\Git\Dto\ComparisonFile;
 use RoundlyConsulting\Git\Dto\Contributor;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
+use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
 use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
@@ -26,6 +28,7 @@ use RoundlyConsulting\Git\Dto\Input\NewRepository;
 use RoundlyConsulting\Git\Dto\Input\NewTag;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\Input\UpdatedFile;
+use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Issue;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\Page;
@@ -35,6 +38,7 @@ use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
+use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\Mapping\GithubMapper;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
@@ -90,6 +94,148 @@ class Github extends BaseProvider
     public function repository(string $path): Repository
     {
         return $this->mapper()->repository($this->get("/repos/{$path}")->json());
+    }
+
+    /**
+     * The repositories THIS INSTALLATION can reach.
+     *
+     * Not `/user/repos`: an installation token has no user behind it, so the user
+     * endpoints answer 403. This one is also enveloped
+     * (`{total_count, repositories: []}`) rather than a bare list.
+     *
+     * @return Page<Repository>
+     */
+    public function installationRepositories(int $perPage = 30): Page
+    {
+        $this->guardSupported(Feature::ListInstallationRepositories);
+        $this->guardAuthenticated();
+
+        return $this->paginate(
+            url: '/installation/repositories',
+            query: [],
+            page: 1,
+            perPage: $perPage,
+            map: fn (array $repository): Repository => $this->mapper()->repository($repository),
+            itemsKey: 'repositories',
+        );
+    }
+
+    /** @return LazyCollection<int, Repository> */
+    public function allInstallationRepositories(int $perPage = 30): LazyCollection
+    {
+        $this->guardSupported(Feature::ListInstallationRepositories);
+        $this->guardAuthenticated();
+
+        return $this->lazyPages(fn (int $page): Page => $this->paginate(
+            url: '/installation/repositories',
+            query: [],
+            page: $page,
+            perPage: $perPage,
+            map: fn (array $repository): Repository => $this->mapper()->repository($repository),
+            itemsKey: 'repositories',
+        ));
+    }
+
+    /**
+     * Look an installation up as the APP.
+     *
+     * Authenticate with {@see GithubApp} credentials, not an installation token — this
+     * is the call that lets a service verify an installation id somebody handed it
+     * before binding anything to it.
+     */
+    public function installation(string $id): Installation
+    {
+        $this->guardSupported(Feature::FindInstallation);
+        $this->guardAuthenticated();
+
+        return $this->toInstallation($this->get("/app/installations/{$id}")->json());
+    }
+
+    /**
+     * Every installation of this app (app JWT).
+     *
+     * @return Page<Installation>
+     */
+    public function installations(int $perPage = 30): Page
+    {
+        $this->guardSupported(Feature::ListInstallations);
+        $this->guardAuthenticated();
+
+        return $this->paginate(
+            url: '/app/installations',
+            query: [],
+            page: 1,
+            perPage: $perPage,
+            map: fn (array $installation): Installation => $this->toInstallation($installation),
+        );
+    }
+
+    /** This app's installation on an organization, if any (app JWT). */
+    public function organizationInstallation(string $organization): Installation
+    {
+        $this->guardSupported(Feature::FindInstallation);
+        $this->guardAuthenticated();
+
+        return $this->toInstallation($this->get("/orgs/{$organization}/installation")->json());
+    }
+
+    /** This app's installation on a user account, if any (app JWT). */
+    public function userInstallation(string $login): Installation
+    {
+        $this->guardSupported(Feature::FindInstallation);
+        $this->guardAuthenticated();
+
+        return $this->toInstallation($this->get("/users/{$login}/installation")->json());
+    }
+
+    /**
+     * Where to send a human to install this app.
+     *
+     * GitHub echoes `state` back to the app's Setup URL alongside `installation_id`,
+     * which is what lets the redirect that comes back be tied to the request that left.
+     * Built here rather than in a consumer so nobody hand-composes a github.com URL —
+     * and so a GitHub Enterprise host follows the configured API URL.
+     *
+     * @throws InvalidCredentialsException when no app slug is configured
+     */
+    public function installUrl(?string $state = null): string
+    {
+        $slug = config("git.providers.{$this->key()}.app.slug");
+
+        if (! is_string($slug) || $slug === '') {
+            throw InvalidCredentialsException::missingAppConfig($this->name(), 'slug');
+        }
+
+        $url = rtrim($this->cloneBaseUrl(), '/')."/apps/{$slug}/installations/new";
+
+        return $state === null || $state === '' ? $url : $url.'?state='.urlencode($state);
+    }
+
+    /** @param array<string, mixed> $raw */
+    private function toInstallation(array $raw): Installation
+    {
+        /** @var array<string, mixed> $account */
+        $account = is_array($raw['account'] ?? null) ? $raw['account'] : [];
+
+        /** @var array<string, string> $permissions */
+        $permissions = is_array($raw['permissions'] ?? null) ? $raw['permissions'] : [];
+
+        $suspendedAt = $raw['suspended_at'] ?? null;
+
+        return new Installation(
+            provider: $this->providerName(),
+            id: (string) ($raw['id'] ?? ''),
+            accountLogin: (string) ($account['login'] ?? ''),
+            // A user installation reports "User"; an org reports "Organization".
+            accountType: (string) ($account['type'] ?? 'Organization'),
+            // Absent means the payload predates the field, and "selected" is the
+            // conservative reading: claiming `all` we were not told about would show a
+            // warning nobody can act on.
+            repositorySelection: (string) ($raw['repository_selection'] ?? 'selected'),
+            permissions: $permissions,
+            suspendedAt: is_string($suspendedAt) ? Carbon::parse($suspendedAt) : null,
+            raw: $raw,
+        );
     }
 
     /** @return Page<string> */
@@ -520,12 +666,27 @@ class Github extends BaseProvider
         ), $hooks);
     }
 
+    /**
+     * An authenticated HTTPS clone URL.
+     *
+     * A refreshable credential (a GitHub App installation, an OAuth grant) carries no
+     * static secret — its `credentials` member is null by construction, so reading it
+     * produced an EMPTY password and a URL that silently failed to authenticate rather
+     * than failing loudly. Ask the credential for a live token instead.
+     *
+     * `x-access-token` is GitHub's documented username for an installation token; a
+     * PAT keeps the historical `token` username, byte for byte.
+     */
     public function cloneUrlForRepository(string $path, string $username, Credentials $credentials): string
     {
+        $secret = $credentials instanceof RefreshableCredentials
+            ? $credentials->accessToken()
+            : (string) $credentials->credentials?->getValue();
+
         return $this->buildCloneUrl(
             baseUrl: $this->cloneBaseUrl(),
-            user: 'token',
-            secret: (string) $credentials->credentials?->getValue(),
+            user: $credentials instanceof GithubAppToken ? 'x-access-token' : 'token',
+            secret: $secret,
             path: $path,
         );
     }
@@ -567,6 +728,9 @@ class Github extends BaseProvider
             Feature::CreateWebhook,
             Feature::DeleteWebhook,
             Feature::ListWebhooks,
+            Feature::FindInstallation,
+            Feature::ListInstallations,
+            Feature::ListInstallationRepositories,
         ];
     }
 
@@ -576,6 +740,7 @@ class Github extends BaseProvider
         return [
             Token::class,
             GithubAppToken::class,
+            GithubApp::class,
             OauthToken::class,
         ];
     }

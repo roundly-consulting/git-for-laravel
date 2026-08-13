@@ -39,3 +39,13 @@ it('exposes capabilities from the registry without authenticating', function () 
     expect($caps[Feature::Languages->value])->toBeFalse()
         ->and($caps[Feature::FindRepository->value])->toBeTrue();
 });
+
+it('reports installation features on github only', function () {
+    expect(github()->supportsAll(
+        Feature::FindInstallation,
+        Feature::ListInstallations,
+        Feature::ListInstallationRepositories,
+    ))->toBeTrue()
+        ->and(gitlab()->supportsAny(Feature::FindInstallation, Feature::ListInstallationRepositories))->toBeFalse()
+        ->and(bitbucket()->supportsAny(Feature::FindInstallation, Feature::ListInstallationRepositories))->toBeFalse();
+});

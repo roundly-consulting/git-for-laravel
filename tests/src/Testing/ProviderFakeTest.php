@@ -7,7 +7,9 @@ use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
+use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Owner;
+use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\ProviderName;
@@ -96,4 +98,41 @@ it('throws on unavailable fake mappers', function () {
 
     expect(fn () => $provider->mapResource())->toThrow(RuntimeException::class)
         ->and(fn () => $provider->mapFileContent([]))->toThrow(RuntimeException::class);
+});
+
+it('drives the installation flow without http', function () {
+    // ONE fake: Registry::fake() rebinds a fresh double, so a second call would assert
+    // against an instance that recorded nothing.
+    $registry = Registry::fake();
+
+    $registry->github()->seedInstallation(new Installation(
+        provider: ProviderName::Github,
+        id: '51234567',
+        accountLogin: 'acme-inc',
+        accountType: 'Organization',
+        repositorySelection: 'selected',
+        permissions: ['contents' => 'write'],
+    ))->seedRepositories([new Repository(
+        provider: ProviderName::Github,
+        id: '40823311',
+        path: 'acme-inc/platform-api',
+        name: 'platform-api',
+        description: null,
+        defaultBranch: 'main',
+        owner: new Owner(id: '1', name: 'acme-inc', avatar: null),
+        createdAt: Carbon::parse('2020-01-01'),
+        lastActivityAt: Carbon::parse('2026-08-01'),
+    )]);
+
+    expect(Registry::githubApp()->installation('51234567')->accountLogin)->toBe('acme-inc')
+        ->and(Registry::github()->installationRepositories()->items)->toHaveCount(1)
+        ->and(Registry::github()->allInstallationRepositories()->all())->toHaveCount(1);
+
+    $registry->assertSent(ProviderName::Github, 'installation');
+});
+
+it('refuses an installation lookup nobody seeded', function () {
+    Registry::fake();
+
+    expect(fn () => Registry::githubApp()->installation('1'))->toThrow(RuntimeException::class);
 });

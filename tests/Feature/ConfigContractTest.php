@@ -28,6 +28,15 @@ it('ships exactly the config keys it reads', function (): void {
         // only thing that makes allowUnread honest rather than a way to mute a real
         // finding. It is rot-checked too: rename one and this entry goes stale and fails.
         'allowUnread' => [
+            // The app permission map is read WHOLESALE and sent to GitHub verbatim
+            // (`InstallationTokenScope::forRepositories()` → the access-token body), for
+            // the same reason as the Guzzle headers below: it is a shipped default a
+            // deployment may change, not a schema this package indexes leaf by leaf.
+            // Nothing here names `contents`, and nothing should — an app granted a
+            // different set changes only this file.
+            'git.providers.github.app.permissions.contents',
+            'git.providers.github.app.permissions.pull_requests',
+            'git.providers.github.app.permissions.metadata',
             'git.providers.github.options.headers.User-Agent',
             'git.providers.github.options.headers.X-GitHub-Api-Version',
             'git.providers.gitlab.options.headers.User-Agent',
