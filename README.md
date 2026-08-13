@@ -451,6 +451,20 @@ Registry::github($credentials)->installationRepositories(); // NOT /user/repos: 
                                                             // installation token 403s there
 ```
 
+The other app-JWT lookups — every account the app is installed on, and finding an existing
+installation by account rather than by id (useful when a customer reinstalls and the stored
+id goes stale):
+
+```php
+Registry::githubApp()->installations();                       // Page<Installation>
+Registry::githubApp()->organizationInstallation('acme-inc');  // Installation
+Registry::githubApp()->userInstallation('octocat');           // Installation
+```
+
+All of these live on the shared `Provider` interface, so they are callable on the `Provider`
+type without an `instanceof`, drivable through `Registry::fake()`, and answer
+`FeatureNotSupportedException` on GitLab and Bitbucket.
+
 Send a human to install the app with `installUrl()`; GitHub echoes `state` back to the app's
 Setup URL alongside `installation_id`, which is what ties the redirect that returns to the
 request that left:

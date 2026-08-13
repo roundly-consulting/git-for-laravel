@@ -138,3 +138,55 @@ it('refuses an installation lookup nobody seeded', function () {
 
     expect(fn () => Registry::githubApp()->installation('1'))->toThrow(RuntimeException::class);
 });
+
+it('drives the app-jwt lookups through the fake', function () {
+    $registry = Registry::fake();
+
+    $registry->githubApp()->seedInstallation(fakeInstallation());
+
+    // Every app-jwt lookup answers the single seeded installation, and each records under
+    // its OWN method name so a consumer can assert WHICH lookup its code performed.
+    expect(Registry::githubApp()->organizationInstallation('acme-inc')->accountLogin)->toBe('acme-inc')
+        ->and(Registry::githubApp()->userInstallation('octocat')->accountType)->toBe('Organization')
+        // No explicit list seeded: the single installation stands in, rather than an empty
+        // page that would read as "this app is installed nowhere".
+        ->and(Registry::githubApp()->installations()->items)->toHaveCount(1);
+
+    $registry->assertSent(ProviderName::Github, 'organizationInstallation');
+    $registry->assertSent(ProviderName::Github, 'userInstallation');
+    $registry->assertSent(ProviderName::Github, 'installations');
+});
+
+it('lists every seeded installation', function () {
+    $registry = Registry::fake();
+
+    $registry->githubApp()->seedInstallations([
+        fakeInstallation(),
+        fakeInstallation('octocat'),
+    ]);
+
+    $items = Registry::githubApp()->installations()->items;
+
+    expect($items)->toHaveCount(2)
+        ->and($items[1]->accountLogin)->toBe('octocat');
+});
+
+it('refuses an installation list nobody seeded', function () {
+    Registry::fake();
+
+    expect(Registry::githubApp()->installations()->items)->toBe([])
+        ->and(fn () => Registry::githubApp()->organizationInstallation('acme-inc'))->toThrow(RuntimeException::class)
+        ->and(fn () => Registry::githubApp()->userInstallation('octocat'))->toThrow(RuntimeException::class);
+});
+
+function fakeInstallation(string $login = 'acme-inc'): Installation
+{
+    return new Installation(
+        provider: ProviderName::Github,
+        id: '51234567',
+        accountLogin: $login,
+        accountType: 'Organization',
+        repositorySelection: 'selected',
+        permissions: ['contents' => 'write'],
+    );
+}

@@ -12,8 +12,10 @@ use RoundlyConsulting\Git\Dto\Credentials\Token;
 use RoundlyConsulting\Git\Dto\Input\InstallationTokenScope;
 use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Repository;
+use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\Facades\Registry;
+use RoundlyConsulting\Git\Interfaces\Provider;
 
 function appPrivateKey(): string
 {
@@ -39,7 +41,7 @@ function mintFake(): array
     ])];
 }
 
-function githubAsApp(): mixed
+function githubAsApp(): Provider
 {
     return Registry::githubApp(GithubApp::for(appId: '123', privateKey: appPrivateKey()));
 }
@@ -152,8 +154,18 @@ it('pages lazily through installation repositories', function () {
 });
 
 it('refuses installation calls on providers that have no app installations', function () {
-    expect(fn () => gitlab()->installation('1'))->toThrow(Exception::class)
-        ->and(fn () => bitbucket()->installationRepositories())->toThrow(Exception::class);
+    // Pinned to the CONCRETE exception, not `Exception`: the whole point of putting these
+    // on the shared interface is that a provider without app installations answers a
+    // typed, catchable refusal. A PHP `Error` from an undefined method is not an
+    // `Exception` at all, and a bare `Exception::class` here would still have let a
+    // RuntimeException or an InvalidArgumentException through unnoticed.
+    expect(fn () => gitlab()->installation('1'))->toThrow(FeatureNotSupportedException::class)
+        ->and(fn () => gitlab()->installations())->toThrow(FeatureNotSupportedException::class)
+        ->and(fn () => gitlab()->organizationInstallation('acme-inc'))->toThrow(FeatureNotSupportedException::class)
+        ->and(fn () => gitlab()->userInstallation('octocat'))->toThrow(FeatureNotSupportedException::class)
+        ->and(fn () => gitlab()->installUrl())->toThrow(FeatureNotSupportedException::class)
+        ->and(fn () => bitbucket()->installationRepositories())->toThrow(FeatureNotSupportedException::class)
+        ->and(fn () => bitbucket()->allInstallationRepositories()->all())->toThrow(FeatureNotSupportedException::class);
 });
 
 it('builds an app clone url with a freshly minted token and the x-access-token user', function () {
@@ -270,6 +282,38 @@ it('mints a clone url through the fake so a consumer can assert it is authentica
         ->and(fn () => $registry->github()->cloneUrlForRepository('acme/api', 'acme', GithubApp::for('123', appPrivateKey())))
         ->toThrow(InvalidCredentialsException::class);
 });
+
+it('authenticates githubApp() from config when no credential is passed', function () {
+    config()->set('git.providers.github.app.id', '456');
+    config()->set('git.providers.github.app.private_key', appPrivateKey());
+
+    Http::fake(['*/app/installations/51234567' => Http::response(installationPayload())]);
+
+    // The no-argument path: a consumer that configured the app once should not have to
+    // rebuild the credential at every call site.
+    expect(Registry::githubApp()->installation('51234567')->accountLogin)->toBe('acme-inc');
+
+    // Signed as the CONFIGURED app, not as the static GITHUB_TOKEN the same block holds.
+    Http::assertSent(function (Request $request): bool {
+        $authorization = str_replace('Bearer ', '', $request->header('Authorization')[0] ?? '');
+        /** @var array<string, mixed> $payload */
+        $payload = (array) json_decode(base64_decode(strtr(explode('.', $authorization)[1], '-_', '+/')), true);
+
+        return $payload['iss'] === '456';
+    });
+});
+
+it('names the missing app config key rather than failing as unauthenticated', function (string $missing) {
+    // An operator reading a log needs WHICH key is absent. Falling back to `null`
+    // credentials would surface the generic "requires authentication" instead, and an
+    // unset private key would look identical to an unset app id.
+    config()->set('git.providers.github.app.id', '456');
+    config()->set('git.providers.github.app.private_key', appPrivateKey());
+    config()->set("git.providers.github.app.{$missing}", null);
+
+    expect(fn () => Registry::githubApp())
+        ->toThrow(InvalidCredentialsException::class, "git.providers.github.app.{$missing}");
+})->with(['id', 'private_key']);
 
 it('builds an install url through the fake', function () {
     $registry = Registry::fake();

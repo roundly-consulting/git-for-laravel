@@ -128,6 +128,24 @@ interface Provider
     public function installation(string $id): Installation;
 
     /**
+     * Every account this app is installed on, looked up as the app itself.
+     *
+     * On the shared interface for the same reason `installation()` is: `Registry::githubApp()`
+     * is typed to THIS interface, so a method only the concrete GitHub provider declares is
+     * unreachable without an `instanceof` narrowing — and a provider without app installations
+     * answers a fatal "undefined method" instead of `FeatureNotSupportedException`.
+     *
+     * @return Page<Installation>
+     */
+    public function installations(int $perPage = 30): Page;
+
+    /** This app's installation on an organization, looked up as the app itself. */
+    public function organizationInstallation(string $organization): Installation;
+
+    /** This app's installation on a user account, looked up as the app itself. */
+    public function userInstallation(string $login): Installation;
+
+    /**
      * Where to send a human to install this provider's app, carrying `state`.
      *
      * On the shared interface for the same reason the two above are: it is the entry point

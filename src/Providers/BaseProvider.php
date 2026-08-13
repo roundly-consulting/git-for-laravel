@@ -292,6 +292,22 @@ abstract class BaseProvider implements Provider
         $this->featureNotSupported();
     }
 
+    /** @return Page<Installation> */
+    public function installations(int $perPage = 30): Page
+    {
+        $this->featureNotSupported();
+    }
+
+    public function organizationInstallation(string $organization): Installation
+    {
+        $this->featureNotSupported();
+    }
+
+    public function userInstallation(string $login): Installation
+    {
+        $this->featureNotSupported();
+    }
+
     public function installUrl(?string $state = null): string
     {
         $this->featureNotSupported();

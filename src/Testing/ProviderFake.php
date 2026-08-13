@@ -94,6 +94,14 @@ final class ProviderFake implements Provider
         return $this;
     }
 
+    /** @param list<Installation> $installations */
+    public function seedInstallations(array $installations): self
+    {
+        $this->seeded['installations'] = $installations;
+
+        return $this;
+    }
+
     public function name(): string
     {
         return $this->name->label();
@@ -206,6 +214,45 @@ final class ProviderFake implements Provider
     {
         $this->record('installation', [$id]);
 
+        return $this->seededInstallation();
+    }
+
+    /**
+     * Every seeded installation.
+     *
+     * Falls back to the single `seedInstallation()` bucket so a test that seeded one
+     * installation and then listed them gets that installation rather than an empty page
+     * — the same reasoning as `installationRepositories()` reusing the repository bucket.
+     *
+     * @return Page<Installation>
+     */
+    public function installations(int $perPage = 30): Page
+    {
+        $this->record('installations', [$perPage]);
+
+        /** @var list<Installation> $items */
+        $items = $this->seeded['installations']
+            ?? (isset($this->seeded['installation']) ? [$this->seededInstallation()] : []);
+
+        return new Page(items: $items, perPage: $perPage, page: 1, hasMore: false);
+    }
+
+    public function organizationInstallation(string $organization): Installation
+    {
+        $this->record('organizationInstallation', [$organization]);
+
+        return $this->seededInstallation();
+    }
+
+    public function userInstallation(string $login): Installation
+    {
+        $this->record('userInstallation', [$login]);
+
+        return $this->seededInstallation();
+    }
+
+    private function seededInstallation(): Installation
+    {
         if (! isset($this->seeded['installation'])) {
             throw new RuntimeException("No installation seeded on the [{$this->name()}] fake.");
         }
