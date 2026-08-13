@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Git\Dto\Credentials;
 
 use RoundlyConsulting\Git\Auth\GithubAppJwt;
 use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
+use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use SensitiveParameter;
 
 /**
@@ -22,12 +23,23 @@ use SensitiveParameter;
  */
 final readonly class GithubApp extends Credentials implements RefreshableCredentials
 {
+    /**
+     * `apiBaseUrl` is carried for parity with {@see GithubAppToken} and for a caller that
+     * wants to record which host a credential was built for; the provider itself takes its
+     * base URL from `git.providers.github.url`, so nothing here reads it.
+     *
+     * @throws InvalidCredentialsException when the app id is not numeric
+     */
     public function __construct(
         public string $appId,
         #[SensitiveParameter] public string $privateKey,
         public ?string $apiBaseUrl = null,
     ) {
         parent::__construct(null);
+
+        if ($appId === '' || ! ctype_digit($appId)) {
+            throw InvalidCredentialsException::invalidAppIdentifier('app id', $appId);
+        }
     }
 
     public static function for(
@@ -41,11 +53,6 @@ final readonly class GithubApp extends Credentials implements RefreshableCredent
     public function accessToken(): string
     {
         return (new GithubAppJwt($this->appId, $this->privateKey))->issue();
-    }
-
-    public function baseUrl(): string
-    {
-        return $this->apiBaseUrl ?? 'https://api.github.com';
     }
 
     /** @return array<string, mixed> */

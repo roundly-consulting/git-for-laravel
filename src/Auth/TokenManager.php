@@ -25,6 +25,15 @@ final class TokenManager
 
     public function installationToken(GithubAppToken $cred): string
     {
+        // A scope that names no repository is a MISTAKE, not a request for a wide token:
+        // GitHub reads a body with no selector as "every repository this installation can
+        // reach", so a caller whose repository list came back empty would receive an
+        // account-wide credential and no signal that anything went wrong. `scope === null`
+        // still means "wide, deliberately" — that is the connection-wide read path.
+        if ($cred->scope !== null && $cred->scope->isEmpty()) {
+            throw InvalidCredentialsException::unscopedInstallationToken();
+        }
+
         $key = $this->installationCacheKey($cred);
 
         /** @var array{token: string, expires_at: int}|null $cached */
@@ -55,12 +64,19 @@ final class TokenManager
             );
         }
 
-        if ($response->status() === 422 || $response->status() === 403) {
+        if ($response->status() === 422) {
             throw InvalidCredentialsException::installationUnavailable(
                 $cred->installationId,
                 'the requested scope was refused — a repository is outside the installation, or a permission was never granted.',
             );
         }
+
+        // 403 is deliberately NOT mapped here. GitHub answers 403 for a primary or
+        // secondary rate limit as well as for a suspended installation, and consumers
+        // treat InvalidCredentialsException as "this connection is broken, a human must
+        // reconnect" — so mapping it would let one throttled minute permanently break a
+        // working connection. It falls through to `throw()`, i.e. a RequestException,
+        // which reads as retryable.
 
         $response->throw();
 

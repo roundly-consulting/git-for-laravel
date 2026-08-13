@@ -264,7 +264,7 @@ class Bitbucket extends BaseProvider
         return $this->buildCloneUrl(
             baseUrl: $this->cloneBaseUrl(),
             user: $username,
-            secret: (string) $credentials->credentials?->getValue(),
+            secret: $this->cloneSecretFor($credentials),
             path: $path,
         );
     }

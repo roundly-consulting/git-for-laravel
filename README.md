@@ -349,6 +349,11 @@ $url = $github->cloneUrlForRepository('octocat/Hello-World', 'octocat', $install
 // https://x-access-token:ghs_...@github.com/octocat/Hello-World.git
 ```
 
+Two consequences worth knowing: for an installation credential this is a **network call**
+(it mints, or reads a cached token), and a `GithubApp` credential is **refused** — the app's
+own JWT can mint a token for every installation of the app, and a clone URL ends up in
+`git remote` and in process environments.
+
 ### Self-refreshing GitHub App / OAuth credentials
 
 Static `Token` credentials never expire, but GitHub App installation tokens and OAuth access
@@ -400,17 +405,28 @@ Registry::github($scoped)->cloneUrlForRepository('acme/api', 'acme', $scoped);
 
 `forRepositories()` takes the permission set from `git.providers.github.app.permissions`.
 Either selector works — `repositoryIds` (numeric, survives a rename) or `repositories`
-(names) — and they are equally narrow; an **empty** scope is not, so check
-`InstallationTokenScope::isEmpty()` and refuse rather than mint wide. The token cache is keyed
+(names) — and they are equally narrow.
+
+An **empty** scope is refused outright: a scope object that names no repository would mint a
+token for every repository in the installation, so `TokenManager` throws rather than
+silently widening. Passing **no scope at all** (`scope === null`) is still the deliberate
+connection-wide path, used for listing an installation's repositories. The token cache is keyed
 per scope, so a scoped mint can never be served a wider cached token. A scope the installation
-cannot satisfy (unknown repository, ungranted permission) and a vanished installation both
-raise `InvalidCredentialsException`.
+cannot satisfy (unknown repository, ungranted permission) and a vanished installation raise
+`InvalidCredentialsException`; a `403` (rate limit, suspension) stays a `RequestException`,
+because consumers treat the former as "reconnect required".
 
 #### Acting as the app, and installing it
 
 `/app/**` endpoints authenticate with the app's own JWT rather than an installation token.
 That is how you verify an installation id before trusting it — for instance one that arrived
 from a browser redirect:
+
+`Registry::githubApp()` reads `git.providers.github.app.{id,private_key}` and throws
+`InvalidCredentialsException` naming the missing key when either is absent. The `/app/**`
+endpoints require **app** credentials and the installation endpoints require an
+**installation** credential; using the wrong one raises this package's own exception rather
+than GitHub's opaque 403.
 
 ```php
 $installation = Registry::githubApp()->installation($installationIdFromTheRedirect);

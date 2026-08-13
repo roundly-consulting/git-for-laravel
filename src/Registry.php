@@ -11,6 +11,7 @@ use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
 use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
 use RoundlyConsulting\Git\Enums\ProviderName;
+use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\Interfaces\Provider;
 use RoundlyConsulting\Git\Providers\BaseProvider;
 use RoundlyConsulting\Git\Providers\Bitbucket;
@@ -37,14 +38,12 @@ class Registry
      * therefore an unauthenticated provider, which fails the guard rather than
      * silently falling back to the static token.
      */
-    public function githubApp(?GithubApp $credentials = null): Provider|Github
+    public function githubApp(?GithubApp $credentials = null): Provider
     {
-        $credentials ??= $this->appCredentials(ProviderName::Github);
-
-        /** @var Github $instance */
-        $instance = resolve(ProviderName::Github->providerClass());
-
-        return $credentials === null ? $instance : $instance->authenticate($credentials);
+        return $this->provider(
+            ProviderName::Github,
+            $credentials ?? $this->appCredentials(ProviderName::Github),
+        );
     }
 
     public function gitlab(?Credentials $credentials = null): Provider|Gitlab
@@ -101,16 +100,28 @@ class Registry
         return $fake;
     }
 
-    /** The configured app credentials for a provider, when it has an app at all. */
-    protected function appCredentials(ProviderName $provider): ?GithubApp
+    /**
+     * The configured app credentials for a provider.
+     *
+     * Throws rather than returning null on a missing key: an unauthenticated provider
+     * would fail later with the generic "requires authentication" message, discarding the
+     * one thing an operator needs — WHICH key is absent.
+     *
+     * @throws InvalidCredentialsException when the provider ships no app credentials
+     */
+    protected function appCredentials(ProviderName $provider): GithubApp
     {
         $key = $provider->key();
 
         $appId = config("git.providers.{$key}.app.id");
         $privateKey = config("git.providers.{$key}.app.private_key");
 
-        if (! is_string($appId) || $appId === '' || ! is_string($privateKey) || $privateKey === '') {
-            return null;
+        if (! is_string($appId) || $appId === '') {
+            throw InvalidCredentialsException::missingAppConfig($provider->key(), 'id');
+        }
+
+        if (! is_string($privateKey) || $privateKey === '') {
+            throw InvalidCredentialsException::missingAppConfig($provider->key(), 'private_key');
         }
 
         return GithubApp::for(

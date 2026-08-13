@@ -211,3 +211,68 @@ it('defaults a scope to the configured app permissions', function () {
 it('knows a scope with no repository selector is empty', function () {
     expect(InstallationTokenScope::forRepositories()->isEmpty())->toBeTrue();
 });
+
+it('REFUSES to put the app jwt into a clone url', function () {
+    // The app JWT can mint an installation token for EVERY installation of the app. A
+    // clone URL is handed to processes and written into `git remote`, so this must fail
+    // loudly rather than produce a URL that leaks it.
+    $credentials = GithubApp::for('123', appPrivateKey());
+
+    expect(fn () => Registry::githubApp($credentials)->cloneUrlForRepository('acme/api', 'acme', $credentials))
+        ->toThrow(InvalidCredentialsException::class);
+});
+
+it('refuses an app-jwt endpoint called with an installation credential, and the reverse', function () {
+    Http::preventStrayRequests();
+
+    $installation = Registry::github(GithubAppToken::for('123', '999', appPrivateKey()));
+    $app = Registry::githubApp(GithubApp::for('123', appPrivateKey()));
+
+    // Without these guards each of these reaches GitHub and comes back as its own opaque
+    // 403 ("a JSON web token could not be decoded"), which names neither cause nor place.
+    expect(fn () => $installation->installation('1'))->toThrow(InvalidCredentialsException::class)
+        ->and(fn () => $app->installationRepositories())->toThrow(InvalidCredentialsException::class);
+});
+
+it('keys the conditional cache per installation, not on an empty token value', function () {
+    config()->set('git.cache.enabled', true);
+
+    Http::fake([
+        '*/app/installations/*/access_tokens' => Http::response([
+            'token' => 'ghs_a',
+            'expires_at' => Carbon::now()->addHour()->toIso8601String(),
+        ]),
+        '*/installation/repositories*' => Http::response(
+            ['total_count' => 0, 'repositories' => []],
+            200,
+            ['ETag' => '"one"'],
+        ),
+    ]);
+
+    // Two DIFFERENT installations reading the same URL. The ETag cache used to be keyed
+    // on the token VALUE, which is the empty string for every app credential — so both
+    // landed on one entry, and the only thing stopping one account's repository list from
+    // being served to the other was GitHub never answering 304 across accounts.
+    Registry::github(GithubAppToken::for('123', '111', appPrivateKey()))->installationRepositories();
+    Registry::github(GithubAppToken::for('123', '222', appPrivateKey()))->installationRepositories();
+
+    // The second installation is a cache MISS, so it must not replay the first's ETag.
+    Http::assertNotSent(fn (Request $request): bool => $request->hasHeader('If-None-Match'));
+});
+
+it('mints a clone url through the fake so a consumer can assert it is authenticated', function () {
+    $registry = Registry::fake();
+
+    $credentials = GithubAppToken::for('123', '999', appPrivateKey());
+
+    expect($registry->github()->cloneUrlForRepository('acme/api', 'acme', $credentials))
+        ->toContain('x-access-token:')
+        ->and(fn () => $registry->github()->cloneUrlForRepository('acme/api', 'acme', GithubApp::for('123', appPrivateKey())))
+        ->toThrow(InvalidCredentialsException::class);
+});
+
+it('builds an install url through the fake', function () {
+    $registry = Registry::fake();
+
+    expect($registry->githubApp()->installUrl('abc'))->toContain('installations/new?state=abc');
+});

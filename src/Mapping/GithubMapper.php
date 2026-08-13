@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Git\Mapping;
 
 use Illuminate\Support\Carbon;
+use InvalidArgumentException;
 use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Commit;
+use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Issue;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\PullRequest;
@@ -15,6 +17,7 @@ use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Enums\ResourceState;
+use Throwable;
 
 final class GithubMapper implements ResourceMapper
 {
@@ -43,6 +46,73 @@ final class GithubMapper implements ResourceMapper
             lastActivityAt: ($raw['pushed_at'] ?? null) ? Carbon::parse($raw['pushed_at']) : $createdAt,
             raw: $raw,
         );
+    }
+
+    /**
+     * A GitHub App installation.
+     *
+     * GitHub-only, so it is NOT on the shared ResourceMapper contract — GitLab and
+     * Bitbucket have no equivalent concept.
+     *
+     * Every field is coerced rather than asserted: this payload is what the
+     * verify-before-you-trust path reads, so a malformed one must fail here rather than
+     * flow into a typed DTO an analyzer then believes.
+     *
+     * @param  array<string, mixed>  $raw
+     *
+     * @throws InvalidArgumentException when the payload carries no installation id
+     */
+    public function installation(array $raw): Installation
+    {
+        $id = $raw['id'] ?? null;
+
+        if (! is_int($id) && ! (is_string($id) && $id !== '')) {
+            throw new InvalidArgumentException('A GitHub installation payload carried no usable id.');
+        }
+
+        $account = is_array($raw['account'] ?? null) ? $raw['account'] : [];
+        $accountType = $account['type'] ?? null;
+        $login = $account['login'] ?? null;
+        $selection = $raw['repository_selection'] ?? null;
+        $suspendedAt = $raw['suspended_at'] ?? null;
+
+        $permissions = [];
+        foreach (is_array($raw['permissions'] ?? null) ? $raw['permissions'] : [] as $name => $access) {
+            if (is_string($name) && is_string($access)) {
+                $permissions[$name] = $access;
+            }
+        }
+
+        return new Installation(
+            provider: $this->provider(),
+            id: (string) $id,
+            accountLogin: is_string($login) ? $login : '',
+            // GitHub says "Organization" or "User".
+            accountType: is_string($accountType) ? $accountType : 'Organization',
+            // Absent means the payload predates the field, and "selected" is the
+            // conservative reading: claiming `all` we were not told about would show a
+            // warning nobody can act on.
+            repositorySelection: $selection === 'all' ? 'all' : 'selected',
+            permissions: $permissions,
+            // A malformed timestamp must not throw out of a mapper on the verify path,
+            // and it must not read as NOT suspended either — that would turn an unparseable
+            // date into "this installation is fine". Unknown-but-present means suspended.
+            suspendedAt: $this->suspendedAt($suspendedAt),
+            raw: $raw,
+        );
+    }
+
+    private function suspendedAt(mixed $value): ?Carbon
+    {
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($value);
+        } catch (Throwable) {
+            return Carbon::now();
+        }
     }
 
     /** @param array<string, mixed> $raw */

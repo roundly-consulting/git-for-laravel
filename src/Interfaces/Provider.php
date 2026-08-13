@@ -126,4 +126,13 @@ interface Provider
 
     /** One app installation, looked up as the app itself. */
     public function installation(string $id): Installation;
+
+    /**
+     * Where to send a human to install this provider's app, carrying `state`.
+     *
+     * On the shared interface for the same reason the two above are: it is the entry point
+     * of a consumer's redirect flow, so it must be drivable through `Registry::fake()` and
+     * callable on the `Provider` type without an `instanceof` narrowing at every call site.
+     */
+    public function installUrl(?string $state = null): string;
 }

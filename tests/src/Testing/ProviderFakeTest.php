@@ -41,7 +41,9 @@ it('returns seeded branches, commit and clone url', function () {
 
     expect($provider->branches('o/r')->items)->toBe(['main'])
         ->and($provider->commit('o/r', 'sha')->sha)->toBe('sha')
-        ->and($provider->cloneUrlForRepository('o/r', 'jane', Token::from('x')))->toBe('https://jane@fake/o/r.git')
+        // The fake now carries the CREDENTIAL too: a double that always returned a
+        // credential-less URL could not fail the way the real providers did.
+        ->and($provider->cloneUrlForRepository('o/r', 'jane', Token::from('x')))->toBe('https://jane:x@fake/o/r.git')
         ->and($provider->user())->toBeInstanceOf(Owner::class);
 });
 

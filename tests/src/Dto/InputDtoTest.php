@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Git\Dto\Input\InstallationTokenScope;
 use RoundlyConsulting\Git\Dto\Input\NewBranch;
 use RoundlyConsulting\Git\Dto\Input\NewComment;
 use RoundlyConsulting\Git\Dto\Input\NewFile;
@@ -47,3 +48,35 @@ it('rejects invalid input dtos', function (Closure $make) {
     'empty webhook url' => [fn () => new NewWebhook(' ')],
     'no webhook events' => [fn () => new NewWebhook('https://hook', [])],
 ]);
+
+it('describes an installation token scope', function () {
+    $scope = new InstallationTokenScope(
+        repositoryIds: ['2', '1'],
+        repositories: ['acme/api'],
+        permissions: ['metadata' => 'read', 'contents' => 'write'],
+    );
+
+    expect($scope->isEmpty())->toBeFalse()
+        ->and((new InstallationTokenScope)->isEmpty())->toBeTrue()
+        ->and($scope->toPayload())->toBe([
+            'repository_ids' => [2, 1],
+            // The owner is stripped: an installation belongs to one account already, and
+            // sending "owner/name" is a 422 that reads like a permissions problem.
+            'repositories' => ['api'],
+            'permissions' => ['metadata' => 'read', 'contents' => 'write'],
+        ])
+        // Order-insensitive, or every mint is a fresh API call against a shared limit.
+        ->and($scope->digest())->toBe((new InstallationTokenScope(
+            repositoryIds: ['1', '2'],
+            repositories: ['acme/api'],
+            permissions: ['contents' => 'write', 'metadata' => 'read'],
+        ))->digest());
+});
+
+it('refuses to digest a scope it cannot encode, rather than sharing one key', function () {
+    // json_encode returns FALSE on invalid UTF-8; `(string) false` is '', so every such
+    // scope would digest to hash('') — one shared cache entry across tenants.
+    $scope = new InstallationTokenScope(repositories: ["acme/\xB1\x31"]);
+
+    expect(fn () => $scope->digest())->toThrow(JsonException::class);
+});

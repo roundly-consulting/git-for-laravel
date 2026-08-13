@@ -196,3 +196,52 @@ it('reports a refused scope as a credential failure', function () {
     expect(fn () => app(TokenManager::class)->installationToken($cred))
         ->toThrow(InvalidCredentialsException::class);
 });
+
+it('refuses a scope that names no repository instead of minting installation-wide', function () {
+    Http::preventStrayRequests();
+
+    // The failure this blocks: a consumer whose repository ids came back empty would
+    // otherwise receive a token for EVERY repository in the installation, for an hour,
+    // with no error and a cache key that looks correctly scoped.
+    $cred = appCredentials()->forScope(new InstallationTokenScope(permissions: ['contents' => 'write']));
+
+    expect(fn () => app(TokenManager::class)->installationToken($cred))
+        ->toThrow(InvalidCredentialsException::class);
+});
+
+it('still mints wide for a credential with NO scope at all', function () {
+    Http::fake([
+        '*/app/installations/999/access_tokens' => Http::response([
+            'token' => 'ghs_wide',
+            'expires_at' => Carbon::now()->addHour()->toIso8601String(),
+        ]),
+    ]);
+
+    // `scope === null` is the deliberate connection-wide read path (listing an
+    // installation's repositories), and must keep working.
+    expect(app(TokenManager::class)->installationToken(appCredentials()))->toBe('ghs_wide');
+
+    Http::assertSent(fn (Request $request): bool => $request->data() === []);
+});
+
+it('leaves a 403 retryable rather than marking the connection broken', function () {
+    // GitHub answers 403 for a rate limit as well as a suspended installation. Mapping it
+    // to InvalidCredentialsException would let one throttled minute permanently break a
+    // working connection, because consumers read that exception as "reconnect required".
+    Http::fake(['*/app/installations/999/access_tokens' => Http::response([], 403)]);
+
+    expect(fn () => app(TokenManager::class)->installationToken(appCredentials()))
+        ->toThrow(RequestException::class);
+});
+
+it('rejects an installation id that could forge another scope cache key', function () {
+    // "999:<digest>" would concatenate into a key byte-identical to the SCOPED key for
+    // installation 999 — and the cache is read before any HTTP call.
+    expect(fn () => GithubAppToken::for('123', '999:'.str_repeat('a', 64), 'key'))
+        ->toThrow(InvalidCredentialsException::class);
+});
+
+it('rejects a non-numeric repository id rather than sending 0 to github', function () {
+    expect(fn () => new InstallationTokenScope(repositoryIds: ['acme/api']))
+        ->toThrow(InvalidCredentialsException::class);
+});

@@ -13,6 +13,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\LazyCollection;
+use RoundlyConsulting\Crypto\Hash\Digest;
 use RoundlyConsulting\Git\Batch\Batch;
 use RoundlyConsulting\Git\Batch\BatchError;
 use RoundlyConsulting\Git\Concerns\InteractsWithRateLimits;
@@ -22,6 +23,9 @@ use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Comparison;
 use RoundlyConsulting\Git\Dto\Contributor;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
+use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
+use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
+use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
 use RoundlyConsulting\Git\Dto\FeatureInfo;
 use RoundlyConsulting\Git\Dto\FileContent;
 use RoundlyConsulting\Git\Dto\Input\NewBranch;
@@ -288,6 +292,11 @@ abstract class BaseProvider implements Provider
         $this->featureNotSupported();
     }
 
+    public function installUrl(?string $state = null): string
+    {
+        $this->featureNotSupported();
+    }
+
     /** @return Page<PullRequest> */
     public function pullRequests(string $path, string $state = 'open', int $perPage = 30): Page
     {
@@ -416,6 +425,40 @@ abstract class BaseProvider implements Provider
         return new Webhooks($this, $path);
     }
 
+    /**
+     * The secret to put in a clone URL for a credential.
+     *
+     * Shared by all three providers because getting it wrong is silent in two different
+     * directions:
+     *
+     * - A **refreshable** credential (a GitHub App installation, an OAuth grant) has no
+     *   static secret — `credentials` is null by construction, so reading it yields an
+     *   EMPTY password and a URL that fails to authenticate while looking well-formed.
+     *   That was the state of both the GitHub App and the GitLab OAuth paths.
+     * - {@see GithubApp} is refreshable too, but its "token" is the APP's own JWT, which
+     *   can mint an installation token for every installation of the app. A clone URL is
+     *   handed to processes and written into `git remote`, so putting it there would be a
+     *   far worse leak than the missing-credential bug above. It is refused outright.
+     *
+     * @throws InvalidCredentialsException when the credential cannot authenticate a clone
+     */
+    protected function cloneSecretFor(Credentials $credentials): string
+    {
+        if ($credentials instanceof GithubApp) {
+            throw InvalidCredentialsException::wrongCredentialType(
+                $this->name(),
+                GithubAppToken::class,
+                $credentials::class,
+            );
+        }
+
+        if ($credentials instanceof RefreshableCredentials) {
+            return $credentials->accessToken();
+        }
+
+        return (string) $credentials->credentials?->getValue();
+    }
+
     protected function buildCloneUrl(string $baseUrl, string $user, string $secret, string $path): string
     {
         $host = str($baseUrl)->after('://')->rtrim('/')->toString();
@@ -446,6 +489,29 @@ abstract class BaseProvider implements Provider
     {
         if (! $this->isAuthenticated()) {
             throw InvalidCredentialsException::missing($this->name());
+        }
+    }
+
+    /**
+     * Require a specific credential TYPE, not merely a credential.
+     *
+     * GitHub authenticates `/app/**` as the app itself and everything else as one of its
+     * installations, and the two are not interchangeable. Without this, the wrong
+     * credential reaches GitHub and comes back as its own opaque 403 ("a JSON web token
+     * could not be decoded") — a message that describes neither what was wrong nor where.
+     *
+     * @param  class-string<Credentials>  $required
+     */
+    protected function guardCredential(string $required): void
+    {
+        $this->guardAuthenticated();
+
+        if (! $this->authentication instanceof $required) {
+            throw InvalidCredentialsException::wrongCredentialType(
+                $this->name(),
+                $required,
+                $this->authentication === null ? null : $this->authentication::class,
+            );
         }
     }
 
@@ -628,6 +694,38 @@ abstract class BaseProvider implements Provider
     }
 
     /**
+     * What distinguishes ONE caller's cache entries from another's.
+     *
+     * The conditional (ETag) cache was keyed on `tokenValue()`, which is the empty string
+     * for every refreshable credential — so with `GIT_CACHE_ENABLED=true` two different
+     * installations shared one entry for `/installation/repositories`, a URL that carries
+     * no discriminator of its own. The only thing between that and serving one account's
+     * repository list to another is GitHub never returning a 304 across accounts.
+     *
+     * An installation is identified by app + installation + scope, never by the minted
+     * token (which rotates hourly and would evict the cache every hour for nothing).
+     */
+    protected function credentialIdentity(): string
+    {
+        $credential = $this->authentication;
+
+        if ($credential instanceof GithubAppToken) {
+            return 'app:'.$credential->appId.':'.$credential->installationId.':'.($credential->scope?->digest() ?? 'wide');
+        }
+
+        if ($credential instanceof GithubApp) {
+            return 'app:'.$credential->appId;
+        }
+
+        if ($credential instanceof OauthToken) {
+            // The refresh token is the stable per-user half; digested, never embedded.
+            return 'oauth:'.(new Digest)->hex($credential->refreshToken);
+        }
+
+        return $this->tokenValue();
+    }
+
+    /**
      * @param  array<string, mixed>  $http
      * @return array{0: int, 1: int}
      */
@@ -663,7 +761,7 @@ abstract class BaseProvider implements Provider
     protected function get(string $url, array $query = []): Response
     {
         $cache = new ConditionalCache($this->key());
-        $cacheKey = $cache->key($url.'?'.http_build_query($query), $this->tokenValue());
+        $cacheKey = $cache->key($url.'?'.http_build_query($query), $this->credentialIdentity());
         $cached = $cache->enabled() ? $cache->get($cacheKey) : null;
 
         $request = $this->client();

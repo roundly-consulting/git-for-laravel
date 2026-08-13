@@ -5,7 +5,10 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Git\Dto\Input;
 
 use RoundlyConsulting\Crypto\Hash\Digest;
+use RoundlyConsulting\Git\Auth\TokenManager;
 use RoundlyConsulting\Git\Dto\Dto;
+use RoundlyConsulting\Git\Enums\ProviderName;
+use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 
 /**
  * What a GitHub App installation token is allowed to reach.
@@ -18,8 +21,9 @@ use RoundlyConsulting\Git\Dto\Dto;
  * `repositoryIds` (GitHub's numeric ids) is preferred over `repositories`
  * ("owner/name") because a rename does not invalidate it — but the two are equally
  * NARROW, so falling back to names is safe where the id is unknown. Falling back to
- * an EMPTY scope is not, which is why {@see isEmpty()} exists and callers are
- * expected to refuse rather than widen.
+ * an EMPTY scope is not: {@see isEmpty()} is what a caller checks, and
+ * {@see TokenManager} refuses one outright rather than
+ * quietly minting installation-wide.
  */
 final readonly class InstallationTokenScope extends Dto
 {
@@ -27,16 +31,27 @@ final readonly class InstallationTokenScope extends Dto
      * @param  list<string>  $repositoryIds  GitHub numeric repository ids
      * @param  list<string>  $repositories  "owner/name" selectors
      * @param  array<string, string>  $permissions  provider-defined map, e.g. ['contents' => 'write']
+     *
+     * @throws InvalidCredentialsException when a repository id is not numeric
      */
     public function __construct(
         public array $repositoryIds = [],
         public array $repositories = [],
         public array $permissions = [],
-    ) {}
+    ) {
+        foreach ($repositoryIds as $id) {
+            // A non-numeric id would become `0` on the way to GitHub's `repository_ids`,
+            // which answers 422 — reported to whoever is reading the log as "the scope was
+            // refused" rather than "that id was never a repository".
+            if ($id === '' || ! ctype_digit($id)) {
+                throw InvalidCredentialsException::invalidRepositorySelector($id);
+            }
+        }
+    }
 
     /**
      * A scope over specific repositories, with the deployment's configured permission
-     * set (`git.providers.github.app.permissions`).
+     * set (`git.providers.<provider>.app.permissions`).
      *
      * The permissions live in config rather than at the call site because they are a
      * property of what the APP was granted, not of one operation — and because a call
@@ -49,10 +64,10 @@ final readonly class InstallationTokenScope extends Dto
     public static function forRepositories(
         array $repositoryIds = [],
         array $repositories = [],
-        string $provider = 'github',
+        ProviderName $provider = ProviderName::Github,
     ): self {
         /** @var array<string, string> $permissions */
-        $permissions = config("git.providers.{$provider}.app.permissions", []);
+        $permissions = config("git.providers.{$provider->key()}.app.permissions", []);
 
         return new self(
             repositoryIds: $repositoryIds,
@@ -80,7 +95,8 @@ final readonly class InstallationTokenScope extends Dto
         $payload = [];
 
         if ($this->repositoryIds !== []) {
-            // Numeric, because GitHub rejects string ids on this field.
+            // Numeric, because GitHub rejects string ids on this field. The constructor
+            // has already proven every entry is digits.
             $payload['repository_ids'] = array_map(intval(...), $this->repositoryIds);
         }
 
@@ -109,10 +125,19 @@ final readonly class InstallationTokenScope extends Dto
      * ORDER-INSENSITIVE on purpose: the same scope expressed with its lists in a
      * different order must hit the same cache entry, or every mint is a fresh API call
      * against a rate limit that is shared per installation.
+     *
+     * Digested over the ENCODED PAYLOAD with `JSON_THROW_ON_ERROR`. Without it,
+     * `json_encode` returns `false` for input this DTO cannot rule out (invalid UTF-8 in
+     * a repository name), `(string) false` is `''`, and every such scope collapses onto
+     * one shared cache key — where the second caller is served a token minted for the
+     * first caller's repository. A throw is the only safe answer: a scope whose identity
+     * cannot be computed must not be cached under a guess.
+     *
+     * @throws \JsonException
      */
     public function digest(): string
     {
-        $ids = $this->repositoryIds;
+        $ids = array_map(intval(...), $this->repositoryIds);
         $names = $this->repositories;
         $permissions = $this->permissions;
 
@@ -120,6 +145,6 @@ final readonly class InstallationTokenScope extends Dto
         sort($names);
         ksort($permissions);
 
-        return (new Digest)->hex((string) json_encode([$ids, $names, $permissions]));
+        return (new Digest)->hex(json_encode([$ids, $names, $permissions], JSON_THROW_ON_ERROR));
     }
 }

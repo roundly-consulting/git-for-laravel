@@ -10,8 +10,11 @@ use Illuminate\Support\LazyCollection;
 use RoundlyConsulting\Git\Batch\Batch;
 use RoundlyConsulting\Git\Batch\BatchError;
 use RoundlyConsulting\Git\Batch\BatchResult;
+use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
+use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
+use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\FeatureInfo;
 use RoundlyConsulting\Git\Dto\FileContent;
 use RoundlyConsulting\Git\Dto\Input\NewRepository;
@@ -24,6 +27,7 @@ use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\ProviderName;
+use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\Interfaces\Provider;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Webhooks\Webhooks;
@@ -210,6 +214,15 @@ final class ProviderFake implements Provider
         return $this->seeded['installation'];
     }
 
+    public function installUrl(?string $state = null): string
+    {
+        $this->record('installUrl', [$state]);
+
+        $slug = config("git.providers.{$this->name->key()}.app.slug") ?: 'fake-app';
+
+        return "https://fake/apps/{$slug}/installations/new".($state === null ? '' : '?state='.urlencode($state));
+    }
+
     public function repository(string $path): Repository
     {
         $this->record('repository', [$path]);
@@ -262,11 +275,37 @@ final class ProviderFake implements Provider
         );
     }
 
+    /**
+     * A fake clone URL that still carries a fake CREDENTIAL for a refreshable one.
+     *
+     * It used to return `https://{username}@fake/…` with no secret at all, which meant no
+     * consumer test could assert that a clone URL is authenticated — the exact bug the
+     * real providers had (an app credential silently producing an empty password). A fake
+     * that cannot fail the way production failed is not a useful double.
+     */
     public function cloneUrlForRepository(string $path, string $username, Credentials $credentials): string
     {
         $this->record('cloneUrlForRepository', [$path, $username]);
 
-        return "https://{$username}@fake/{$path}.git";
+        if ($credentials instanceof GithubApp) {
+            throw InvalidCredentialsException::wrongCredentialType(
+                $this->name(),
+                GithubAppToken::class,
+                $credentials::class,
+            );
+        }
+
+        if ($credentials instanceof GithubAppToken) {
+            return "https://x-access-token:ghs_fake@fake/{$path}.git";
+        }
+
+        $secret = $credentials instanceof RefreshableCredentials
+            ? 'fake-refreshed'
+            : (string) $credentials->credentials?->getValue();
+
+        return $secret === ''
+            ? "https://{$username}@fake/{$path}.git"
+            : "https://{$username}:{$secret}@fake/{$path}.git";
     }
 
     /** @return array<string, bool> */

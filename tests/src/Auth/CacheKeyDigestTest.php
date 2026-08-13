@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Git\Dto\Input\InstallationTokenScope;
 use RoundlyConsulting\Git\Http\ConditionalCache;
 
 /**
@@ -48,4 +49,19 @@ it('never embeds the raw token in a cache key', function (): void {
 
     expect($key)->not->toContain('super-secret-token')
         ->and($key)->not->toContain('https://api.github.com/repos/a/b');
+});
+
+it('freezes the installation-scope digest as a vector', function () {
+    // A persisted contract like the keys above: a digest that drifts silently strands
+    // every cached installation token a deployed host already wrote.
+    $scope = new InstallationTokenScope(
+        repositoryIds: ['40823311'],
+        permissions: ['contents' => 'write', 'metadata' => 'read', 'pull_requests' => 'write'],
+    );
+
+    expect($scope->digest())->toBe(hash('sha256', json_encode([
+        [40823311],
+        [],
+        ['contents' => 'write', 'metadata' => 'read', 'pull_requests' => 'write'],
+    ], JSON_THROW_ON_ERROR)));
 });

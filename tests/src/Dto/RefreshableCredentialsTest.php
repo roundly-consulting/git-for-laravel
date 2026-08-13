@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 use Illuminate\Support\Carbon;
 use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
+use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
 use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
+use RoundlyConsulting\Git\Dto\Input\InstallationTokenScope;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 
@@ -82,4 +84,27 @@ it('refuses to build an oauth token for a provider with no oauth block at all', 
     // hand back a credential built from nulls.
     expect(fn () => OauthToken::forProvider(ProviderName::Bitbucket, 'A', 'R'))
         ->toThrow(InvalidCredentialsException::class, 'git.providers.bitbucket.oauth.client_id');
+});
+
+it('redacts the private key on the app credential', function () {
+    $cred = GithubApp::for('123', 'PEM-SECRET-VALUE');
+
+    expect($cred)->toBeInstanceOf(RefreshableCredentials::class)
+        ->and($cred->toArray()['privateKey'])->toBe('••••')
+        ->and($cred->toJson())->not->toContain('PEM-SECRET-VALUE');
+});
+
+it('rejects a non-numeric app or installation id', function () {
+    // Both end up inside a cache key built by concatenation, so a value carrying `:`
+    // could name another scope's entry.
+    expect(fn () => GithubApp::for('not-an-id', 'k'))->toThrow(InvalidCredentialsException::class)
+        ->and(fn () => GithubAppToken::for('123', 'nope', 'k'))->toThrow(InvalidCredentialsException::class);
+});
+
+it('exposes only the scope digest on a scoped credential, never the repository list', function () {
+    $cred = GithubAppToken::for('123', '999', 'PEM')
+        ->forScope(new InstallationTokenScope(repositoryIds: ['40823311']));
+
+    expect($cred->toArray()['scope'])->toBe($cred->scope?->digest())
+        ->and($cred->toJson())->not->toContain('40823311');
 });

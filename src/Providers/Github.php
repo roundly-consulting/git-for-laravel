@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Providers;
 
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\LazyCollection;
-use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
 use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
@@ -50,7 +50,12 @@ class Github extends BaseProvider
         return 'github';
     }
 
-    protected function mapper(): ResourceMapper
+    /**
+     * Narrowed to the concrete GitHub mapper (a legal covariant return), so GitHub-only
+     * mappings like `installation()` are type-safe without widening the shared
+     * ResourceMapper contract with a concept the other two providers do not have.
+     */
+    protected function mapper(): GithubMapper
     {
         return resolve(GithubMapper::class);
     }
@@ -108,7 +113,7 @@ class Github extends BaseProvider
     public function installationRepositories(int $perPage = 30): Page
     {
         $this->guardSupported(Feature::ListInstallationRepositories);
-        $this->guardAuthenticated();
+        $this->guardCredential(GithubAppToken::class);
 
         return $this->paginate(
             url: '/installation/repositories',
@@ -124,7 +129,7 @@ class Github extends BaseProvider
     public function allInstallationRepositories(int $perPage = 30): LazyCollection
     {
         $this->guardSupported(Feature::ListInstallationRepositories);
-        $this->guardAuthenticated();
+        $this->guardCredential(GithubAppToken::class);
 
         return $this->lazyPages(fn (int $page): Page => $this->paginate(
             url: '/installation/repositories',
@@ -146,9 +151,9 @@ class Github extends BaseProvider
     public function installation(string $id): Installation
     {
         $this->guardSupported(Feature::FindInstallation);
-        $this->guardAuthenticated();
+        $this->guardCredential(GithubApp::class);
 
-        return $this->toInstallation($this->get("/app/installations/{$id}")->json());
+        return $this->mapper()->installation($this->get("/app/installations/{$id}")->json());
     }
 
     /**
@@ -159,14 +164,14 @@ class Github extends BaseProvider
     public function installations(int $perPage = 30): Page
     {
         $this->guardSupported(Feature::ListInstallations);
-        $this->guardAuthenticated();
+        $this->guardCredential(GithubApp::class);
 
         return $this->paginate(
             url: '/app/installations',
             query: [],
             page: 1,
             perPage: $perPage,
-            map: fn (array $installation): Installation => $this->toInstallation($installation),
+            map: fn (array $installation): Installation => $this->mapper()->installation($installation),
         );
     }
 
@@ -174,18 +179,18 @@ class Github extends BaseProvider
     public function organizationInstallation(string $organization): Installation
     {
         $this->guardSupported(Feature::FindInstallation);
-        $this->guardAuthenticated();
+        $this->guardCredential(GithubApp::class);
 
-        return $this->toInstallation($this->get("/orgs/{$organization}/installation")->json());
+        return $this->mapper()->installation($this->get("/orgs/{$organization}/installation")->json());
     }
 
     /** This app's installation on a user account, if any (app JWT). */
     public function userInstallation(string $login): Installation
     {
         $this->guardSupported(Feature::FindInstallation);
-        $this->guardAuthenticated();
+        $this->guardCredential(GithubApp::class);
 
-        return $this->toInstallation($this->get("/users/{$login}/installation")->json());
+        return $this->mapper()->installation($this->get("/users/{$login}/installation")->json());
     }
 
     /**
@@ -203,39 +208,12 @@ class Github extends BaseProvider
         $slug = config("git.providers.{$this->key()}.app.slug");
 
         if (! is_string($slug) || $slug === '') {
-            throw InvalidCredentialsException::missingAppConfig($this->name(), 'slug');
+            throw InvalidCredentialsException::missingAppConfig($this->key(), 'slug');
         }
 
         $url = rtrim($this->cloneBaseUrl(), '/')."/apps/{$slug}/installations/new";
 
         return $state === null || $state === '' ? $url : $url.'?state='.urlencode($state);
-    }
-
-    /** @param array<string, mixed> $raw */
-    private function toInstallation(array $raw): Installation
-    {
-        /** @var array<string, mixed> $account */
-        $account = is_array($raw['account'] ?? null) ? $raw['account'] : [];
-
-        /** @var array<string, string> $permissions */
-        $permissions = is_array($raw['permissions'] ?? null) ? $raw['permissions'] : [];
-
-        $suspendedAt = $raw['suspended_at'] ?? null;
-
-        return new Installation(
-            provider: $this->providerName(),
-            id: (string) ($raw['id'] ?? ''),
-            accountLogin: (string) ($account['login'] ?? ''),
-            // A user installation reports "User"; an org reports "Organization".
-            accountType: (string) ($account['type'] ?? 'Organization'),
-            // Absent means the payload predates the field, and "selected" is the
-            // conservative reading: claiming `all` we were not told about would show a
-            // warning nobody can act on.
-            repositorySelection: (string) ($raw['repository_selection'] ?? 'selected'),
-            permissions: $permissions,
-            suspendedAt: is_string($suspendedAt) ? Carbon::parse($suspendedAt) : null,
-            raw: $raw,
-        );
     }
 
     /** @return Page<string> */
@@ -669,24 +647,23 @@ class Github extends BaseProvider
     /**
      * An authenticated HTTPS clone URL.
      *
-     * A refreshable credential (a GitHub App installation, an OAuth grant) carries no
-     * static secret — its `credentials` member is null by construction, so reading it
-     * produced an EMPTY password and a URL that silently failed to authenticate rather
-     * than failing loudly. Ask the credential for a live token instead.
+     * `x-access-token` is GitHub's documented username for an installation token; a PAT
+     * keeps the historical `token` username, byte for byte. The secret comes from
+     * {@see BaseProvider::cloneSecretFor()}, which is where the two ways this can go
+     * wrong quietly are handled.
      *
-     * `x-access-token` is GitHub's documented username for an installation token; a
-     * PAT keeps the historical `token` username, byte for byte.
+     * NOTE this is a NETWORK CALL for an installation credential: it mints a token (or
+     * reads a cached one), so a loop over N repositories is N mints on a cold cache.
+     *
+     * @throws InvalidCredentialsException when the credential cannot authenticate a clone
+     * @throws RequestException when minting fails upstream
      */
     public function cloneUrlForRepository(string $path, string $username, Credentials $credentials): string
     {
-        $secret = $credentials instanceof RefreshableCredentials
-            ? $credentials->accessToken()
-            : (string) $credentials->credentials?->getValue();
-
         return $this->buildCloneUrl(
             baseUrl: $this->cloneBaseUrl(),
             user: $credentials instanceof GithubAppToken ? 'x-access-token' : 'token',
-            secret: $secret,
+            secret: $this->cloneSecretFor($credentials),
             path: $path,
         );
     }
