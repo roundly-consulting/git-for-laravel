@@ -9,14 +9,6 @@ use RoundlyConsulting\Git\Webhooks\Mapping\BitbucketWebhookMapper;
 use RoundlyConsulting\Git\Webhooks\Mapping\GithubWebhookMapper;
 use RoundlyConsulting\Git\Webhooks\Mapping\GitlabWebhookMapper;
 
-function webhookFixture(string $provider, string $event): array
-{
-    return json_decode(
-        (string) file_get_contents(__DIR__."/../../fixtures/webhooks/{$provider}/{$event}.json"),
-        true,
-    );
-}
-
 it('maps a github push into canonical commits', function () {
     $event = new WebhookEvent(ProviderName::Github, 'push', webhookFixture('github', 'push'));
 

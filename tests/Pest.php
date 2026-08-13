@@ -2,6 +2,7 @@
 
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
 use RoundlyConsulting\Git\Facades\Registry;
 use RoundlyConsulting\Git\Providers\Bitbucket;
@@ -33,6 +34,27 @@ uses(TestCase::class)->in(
     __DIR__.'/ArchTest.php',
 );
 
+if (! function_exists('generateRsaKeypair')) {
+    /**
+     * An RSA keypair for the GitHub App paths.
+     *
+     * Lives HERE rather than in the test file that first needed it: Pest loads this file
+     * into every worker, whereas a helper declared inside `tests/src/Auth/GithubAppJwtTest.php`
+     * only exists in the worker that happens to own that file. Under `--parallel` the
+     * workers that got `TokenManagerTest` but not `GithubAppJwtTest` died on an undefined
+     * function, and `toThrow()` reported the resulting `Error` as "wrong exception type"
+     * rather than as a missing helper.
+     *
+     * @return array{0: string, 1: string} [private PEM, public PEM]
+     */
+    function generateRsaKeypair(): array
+    {
+        $key = RsaKey::generate();
+
+        return [$key->privatePem(), $key->publicPem()];
+    }
+}
+
 if (! function_exists('snapshot')) {
     function snapshot(string $name, bool $raw = false, int $times = 1): array|PromiseInterface
     {
@@ -53,6 +75,24 @@ if (! function_exists('snapshot')) {
         }
 
         return Http::response($result);
+    }
+}
+
+if (! function_exists('webhookFixture')) {
+    /**
+     * A recorded webhook body, read by both the mapper suite and the event-accessor suite
+     * — which is why it lives here and not in whichever file needed it first. See
+     * `generateRsaKeypair()` above: a helper shared across test FILES has to be declared
+     * in a file every parallel worker loads.
+     *
+     * @return array<mixed>
+     */
+    function webhookFixture(string $provider, string $event): array
+    {
+        return json_decode(
+            (string) file_get_contents(__DIR__."/fixtures/webhooks/{$provider}/{$event}.json"),
+            true,
+        );
     }
 }
 

@@ -11,14 +11,6 @@ use RoundlyConsulting\Crypto\Signature\Rs;
 use RoundlyConsulting\Git\Auth\GithubAppJwt;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 
-/** @return array{0: string, 1: string} */
-function generateRsaKeypair(): array
-{
-    $key = RsaKey::generate();
-
-    return [$key->privatePem(), $key->publicPem()];
-}
-
 /** @return array<string, mixed> */
 function decodeSegment(string $segment): array
 {
