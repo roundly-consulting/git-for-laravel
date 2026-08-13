@@ -102,7 +102,7 @@ final class InvalidCredentialsException extends Exception
         $supported = collect($supported)->map(fn (string $className): string => class_basename($className))->implode(', ');
 
         return new self(
-            "Authentication with [{$credentials}] is not supported by provider [{$provider}].".
+            "Authentication with [{$credentials}] is not supported by provider [{$provider}]. ".
             "Supported authentication methods are [{$supported}]."
         );
     }

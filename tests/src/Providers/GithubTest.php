@@ -38,7 +38,7 @@ it('throws exception when authenticating with an unsupported method', function (
     );
 })->throws(
     InvalidCredentialsException::class,
-    'Authentication with [Password] is not supported by provider [GitHub].'.
+    'Authentication with [Password] is not supported by provider [GitHub]. '.
     'Supported authentication methods are [Token, GithubAppToken, GithubApp, OauthToken].'
 );
 
