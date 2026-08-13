@@ -153,15 +153,23 @@ final class TokenManager
     /**
      * The cache key for an installation token.
      *
-     * The SCOPE is part of the key. Without it a repository-scoped mint would be
-     * served the installation-wide token a previous caller cached — silently handing
-     * back a credential for every repository in the installation, which is exactly the
-     * property scoping exists to remove. An unscoped credential keeps the historical
-     * key, so nothing already cached is stranded.
+     * Three things identify a minted token, and every one of them has to be in the key:
+     *
+     * - The HOST. App and installation ids are numeric and per-host, so app 123 /
+     *   installation 999 on github.com and the same pair on a GitHub Enterprise instance
+     *   are unrelated credentials that would otherwise share one entry — and the cache is
+     *   read before any HTTP call, so the second host would be served the first's token.
+     *   Digested rather than embedded so a host with a `:` in it cannot forge a segment.
+     * - app + installation, already proven numeric by {@see GithubAppToken}, so neither
+     *   can smuggle a `:` into the key either.
+     * - The SCOPE. Without it a repository-scoped mint would be served the
+     *   installation-wide token a previous caller cached — silently handing back a
+     *   credential for every repository in the installation, which is exactly the property
+     *   scoping exists to remove.
      */
     private function installationCacheKey(GithubAppToken $cred): string
     {
-        $key = 'git:app:'.$cred->appId.':'.$cred->installationId;
+        $key = 'git:app:'.(new Digest)->hex($cred->baseUrl()).':'.$cred->appId.':'.$cred->installationId;
 
         return $cred->scope === null ? $key : $key.':'.$cred->scope->digest();
     }

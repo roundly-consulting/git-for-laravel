@@ -158,6 +158,32 @@ it('keys the cache per scope so a scoped mint never receives a wider token', fun
     Http::assertSentCount(3);
 });
 
+it('keys the cache per HOST so two forges never share an installation token', function () {
+    // App and installation ids are numeric and PER HOST, so app 123 / installation 999 on
+    // github.com and the same pair on a GitHub Enterprise instance are unrelated
+    // credentials. The cache is read before any HTTP call, so a key that omits the host
+    // hands the enterprise caller the github.com token — and vice versa.
+    Http::fake([
+        '*/app/installations/999/access_tokens' => Http::sequence()
+            ->push(['token' => 'ghs_dotcom', 'expires_at' => Carbon::now()->addHour()->toIso8601String()])
+            ->push(['token' => 'ghs_enterprise', 'expires_at' => Carbon::now()->addHour()->toIso8601String()]),
+    ]);
+
+    [$privateKey] = generateRsaKeypair();
+
+    $manager = app(TokenManager::class);
+
+    $dotcom = GithubAppToken::for('123', '999', $privateKey);
+    $enterprise = GithubAppToken::for('123', '999', $privateKey, 'https://github.acme-inc.test/api/v3');
+
+    expect($manager->installationToken($dotcom))->toBe('ghs_dotcom')
+        ->and($manager->installationToken($enterprise))->toBe('ghs_enterprise')
+        // Each host still caches on its own key.
+        ->and($manager->installationToken($dotcom))->toBe('ghs_dotcom');
+
+    Http::assertSentCount(2);
+});
+
 it('hits one cache entry for the same scope written in a different order', function () {
     Http::fake([
         '*/app/installations/999/access_tokens' => Http::response([
