@@ -31,6 +31,7 @@ final readonly class InstallationTokenScope extends Dto
      * @param  list<string>  $repositoryIds  GitHub numeric repository ids
      * @param  list<string>  $repositories  "owner/name" selectors
      * @param  array<string, string>  $permissions  provider-defined map, e.g. ['contents' => 'write']
+     * @param  bool  $installationWide  DELIBERATELY no repository selector — see {@see metadataOnly()}
      *
      * @throws InvalidCredentialsException when a repository id is not numeric
      */
@@ -38,6 +39,7 @@ final readonly class InstallationTokenScope extends Dto
         public array $repositoryIds = [],
         public array $repositories = [],
         public array $permissions = [],
+        public bool $installationWide = false,
     ) {
         foreach ($repositoryIds as $id) {
             // A non-numeric id would become `0` on the way to GitHub's `repository_ids`,
@@ -76,10 +78,29 @@ final readonly class InstallationTokenScope extends Dto
         );
     }
 
-    /** No repository selector at all — a token minted from this reaches the whole installation. */
+    /**
+     * A scope for reading an installation's own metadata: every repository, but
+     * `metadata: read` and nothing else.
+     *
+     * There is one legitimate operation that cannot name a repository — asking WHICH
+     * repositories an installation has. Answering it with a null scope would mint a
+     * token carrying every permission the installation granted (`contents: write`
+     * included) across the whole account, for an hour. This narrows the other axis
+     * instead: as wide as it must be, as weak as it can be.
+     */
+    public static function metadataOnly(): self
+    {
+        return new self(permissions: ['metadata' => 'read'], installationWide: true);
+    }
+
+    /**
+     * No repository selector AND no deliberate choice to go wide — i.e. a caller whose
+     * repository list came back empty. A token minted from this would reach the whole
+     * installation with every granted permission, so `TokenManager` refuses it.
+     */
     public function isEmpty(): bool
     {
-        return $this->repositoryIds === [] && $this->repositories === [];
+        return $this->repositoryIds === [] && $this->repositories === [] && ! $this->installationWide;
     }
 
     /**
@@ -145,6 +166,6 @@ final readonly class InstallationTokenScope extends Dto
         sort($names);
         ksort($permissions);
 
-        return (new Digest)->hex(json_encode([$ids, $names, $permissions], JSON_THROW_ON_ERROR));
+        return (new Digest)->hex(json_encode([$ids, $names, $permissions, $this->installationWide], JSON_THROW_ON_ERROR));
     }
 }

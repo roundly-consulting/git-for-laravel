@@ -53,7 +53,10 @@ it('never embeds the raw token in a cache key', function (): void {
 
 it('freezes the installation-scope digest as a vector', function () {
     // A persisted contract like the keys above: a digest that drifts silently strands
-    // every cached installation token a deployed host already wrote.
+    // every cached installation token a deployed host already wrote. The payload
+    // includes `installationWide`, so a deliberately wide scope and an accidentally
+    // empty one can never collide on a key — that flag is the whole difference between
+    // "metadata across the account" and "everything the installation granted".
     $scope = new InstallationTokenScope(
         repositoryIds: ['40823311'],
         permissions: ['contents' => 'write', 'metadata' => 'read', 'pull_requests' => 'write'],
@@ -63,5 +66,6 @@ it('freezes the installation-scope digest as a vector', function () {
         [40823311],
         [],
         ['contents' => 'write', 'metadata' => 'read', 'pull_requests' => 'write'],
+        false,
     ], JSON_THROW_ON_ERROR)));
 });

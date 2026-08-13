@@ -245,3 +245,38 @@ it('rejects a non-numeric repository id rather than sending 0 to github', functi
     expect(fn () => new InstallationTokenScope(repositoryIds: ['acme/api']))
         ->toThrow(InvalidCredentialsException::class);
 });
+
+it('mints a metadata-only token for the one operation that cannot name a repository', function () {
+    Http::fake([
+        '*/app/installations/999/access_tokens' => Http::response([
+            'token' => 'ghs_metadata',
+            'expires_at' => Carbon::now()->addHour()->toIso8601String(),
+        ]),
+    ]);
+
+    // Listing an installation's repositories is the only legitimate wide mint. It is
+    // wide on the REPOSITORY axis and as narrow as possible on the other: without this,
+    // a repository listing hands out `contents: write` across the whole account.
+    $cred = appCredentials()->forScope(InstallationTokenScope::metadataOnly());
+
+    expect(app(TokenManager::class)->installationToken($cred))->toBe('ghs_metadata');
+
+    Http::assertSent(fn (Request $request): bool => $request->data() === [
+        'permissions' => ['metadata' => 'read'],
+    ]);
+});
+
+it('keeps the metadata-only token in its own cache entry', function () {
+    Http::fake([
+        '*/app/installations/999/access_tokens' => Http::sequence()
+            ->push(['token' => 'metadata', 'expires_at' => Carbon::now()->addHour()->toIso8601String()])
+            ->push(['token' => 'wide', 'expires_at' => Carbon::now()->addHour()->toIso8601String()]),
+    ]);
+
+    $manager = app(TokenManager::class);
+
+    expect($manager->installationToken(appCredentials()->forScope(InstallationTokenScope::metadataOnly())))->toBe('metadata')
+        // A null scope is still "everything the installation granted" and must not be
+        // served the read-only one, nor the other way round.
+        ->and($manager->installationToken(appCredentials()))->toBe('wide');
+});

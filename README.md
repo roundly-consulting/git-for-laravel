@@ -409,8 +409,19 @@ Either selector works — `repositoryIds` (numeric, survives a rename) or `repos
 
 An **empty** scope is refused outright: a scope object that names no repository would mint a
 token for every repository in the installation, so `TokenManager` throws rather than
-silently widening. Passing **no scope at all** (`scope === null`) is still the deliberate
-connection-wide path, used for listing an installation's repositories. The token cache is keyed
+silently widening.
+
+The one operation that genuinely cannot name a repository is asking which repositories an
+installation has. Use `InstallationTokenScope::metadataOnly()` there — wide on the repository
+axis, `metadata: read` on the other:
+
+```php
+Registry::github($credentials->forScope(InstallationTokenScope::metadataOnly()))
+    ->installationRepositories();
+```
+
+Passing **no scope at all** (`scope === null`) means "everything this installation granted,
+everywhere", and is almost never what you want. The token cache is keyed
 per scope, so a scoped mint can never be served a wider cached token. A scope the installation
 cannot satisfy (unknown repository, ungranted permission) and a vanished installation raise
 `InvalidCredentialsException`; a `403` (rate limit, suspension) stays a `RequestException`,

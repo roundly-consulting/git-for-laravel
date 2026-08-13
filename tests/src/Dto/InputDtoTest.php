@@ -73,6 +73,19 @@ it('describes an installation token scope', function () {
         ))->digest());
 });
 
+it('separates a deliberately wide scope from an accidentally empty one', function () {
+    $metadata = InstallationTokenScope::metadataOnly();
+
+    expect($metadata->isEmpty())->toBeFalse()
+        ->and($metadata->toPayload())->toBe(['permissions' => ['metadata' => 'read']])
+        // A scope with the same permissions but no deliberate choice is still empty —
+        // that is the one that would silently mint installation-wide.
+        ->and((new InstallationTokenScope(permissions: ['metadata' => 'read']))->isEmpty())->toBeTrue()
+        ->and($metadata->digest())->not->toBe(
+            (new InstallationTokenScope(permissions: ['metadata' => 'read']))->digest(),
+        );
+});
+
 it('refuses to digest a scope it cannot encode, rather than sharing one key', function () {
     // json_encode returns FALSE on invalid UTF-8; `(string) false` is '', so every such
     // scope would digest to hash('') — one shared cache entry across tenants.
