@@ -38,6 +38,7 @@ use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
+use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\Mapping\GithubMapper;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
@@ -573,8 +574,6 @@ class Github extends BaseProvider
     /**
      * Merge a pull request. Returns the merge commit sha.
      *
-     * `$method` is GitHub's `merge_method` — `merge`, `squash` or `rebase`.
-     *
      * **A merge GitHub will not perform THROWS**, like every other refusal in this
      * package: `405` for an unmergeable pull request (unsatisfied branch protection, a
      * required check, a merge method the repository disallows) and `409` for a conflict or
@@ -589,7 +588,7 @@ class Github extends BaseProvider
     public function mergePullRequest(
         string $path,
         int $number,
-        string $method = 'merge',
+        MergeMethod $method = MergeMethod::Merge,
         ?string $sha = null,
         ?string $title = null,
         ?string $message = null,
@@ -598,7 +597,7 @@ class Github extends BaseProvider
         $this->guardAuthenticated();
 
         $response = $this->send('PUT', "/repos/{$path}/pulls/{$number}/merge", array_filter([
-            'merge_method' => $method,
+            'merge_method' => $method->value,
             'sha' => $sha,
             'commit_title' => $title,
             'commit_message' => $message,

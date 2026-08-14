@@ -24,6 +24,7 @@ use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\Facades\Registry;
@@ -198,18 +199,32 @@ it('omits an absent review body rather than sending null', function () {
 it('merges a pull request and returns the merge commit', function () {
     Http::fake(['*/repos/o/r/pulls/7/merge' => Http::response(['merged' => true, 'sha' => 'abc'])]);
 
-    expect(github()->mergePullRequest('o/r', 7, 'squash'))->toBe('abc');
+    expect(github()->mergePullRequest('o/r', 7, MergeMethod::Squash))->toBe('abc');
 
     Http::assertSent(
         fn ($request): bool => $request->method() === 'PUT' && $request['merge_method'] === 'squash',
     );
 });
 
+it('defaults to a merge commit and cannot be handed a method the forge would 405', function () {
+    // The merge method is a CLOSED set the repository can disallow, so a typo and a
+    // genuinely refused method are the same 405. The enum moves the typo to the call site.
+    Http::fake(['*/repos/o/r/pulls/7/merge' => Http::response(['merged' => true, 'sha' => 'abc'])]);
+
+    github()->mergePullRequest('o/r', 7);
+
+    Http::assertSent(fn ($request): bool => $request['merge_method'] === 'merge');
+
+    expect(MergeMethod::cases())->toHaveCount(3)
+        ->and(array_map(fn (MergeMethod $m): string => $m->value, MergeMethod::cases()))
+        ->toBe(['merge', 'squash', 'rebase']);
+});
+
 it('makes the merge conditional on the head the caller decided about', function () {
     // Without `sha`, a push landing between the review and the merge is merged unseen.
     Http::fake(['*/repos/o/r/pulls/7/merge' => Http::response(['merged' => true, 'sha' => 'abc'])]);
 
-    github()->mergePullRequest('o/r', 7, 'merge', 'head-sha');
+    github()->mergePullRequest('o/r', 7, MergeMethod::Merge, 'head-sha');
 
     Http::assertSent(fn ($request): bool => $request['sha'] === 'head-sha');
 });

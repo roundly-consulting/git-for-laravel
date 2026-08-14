@@ -48,6 +48,7 @@ use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
+use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
@@ -55,6 +56,7 @@ use RoundlyConsulting\Git\Http\ConditionalCache;
 use RoundlyConsulting\Git\Http\RateLimitStatusParser;
 use RoundlyConsulting\Git\Interfaces\Provider;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
+use RoundlyConsulting\Git\Query\CommitQuery;
 use RoundlyConsulting\Git\Webhooks\Webhooks;
 
 abstract class BaseProvider implements Provider
@@ -270,6 +272,11 @@ abstract class BaseProvider implements Provider
         $this->featureNotSupported();
     }
 
+    public function commits(string $path): CommitQuery
+    {
+        $this->featureNotSupported();
+    }
+
     public function cloneUrlForRepository(string $path, string $username, Credentials $credentials): string
     {
         $this->featureNotSupported();
@@ -402,6 +409,27 @@ abstract class BaseProvider implements Provider
 
     public function createPullRequest(string $path, NewPullRequest $data): PullRequest
     {
+        $this->featureNotSupported();
+    }
+
+    public function closePullRequest(string $path, int $number): PullRequest
+    {
+        $this->featureNotSupported();
+    }
+
+    public function approvePullRequest(string $path, int $number, ?string $body = null): string
+    {
+        $this->featureNotSupported();
+    }
+
+    public function mergePullRequest(
+        string $path,
+        int $number,
+        MergeMethod $method = MergeMethod::Merge,
+        ?string $sha = null,
+        ?string $title = null,
+        ?string $message = null,
+    ): string {
         $this->featureNotSupported();
     }
 

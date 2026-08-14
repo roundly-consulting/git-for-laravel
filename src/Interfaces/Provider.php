@@ -8,22 +8,49 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\LazyCollection;
 use RoundlyConsulting\Git\Batch\Batch;
 use RoundlyConsulting\Git\Batch\BatchError;
+use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
+use RoundlyConsulting\Git\Dto\Comparison;
+use RoundlyConsulting\Git\Dto\Contributor;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
 use RoundlyConsulting\Git\Dto\FeatureInfo;
 use RoundlyConsulting\Git\Dto\FileContent;
+use RoundlyConsulting\Git\Dto\Input\NewBranch;
+use RoundlyConsulting\Git\Dto\Input\NewComment;
+use RoundlyConsulting\Git\Dto\Input\NewFile;
+use RoundlyConsulting\Git\Dto\Input\NewPullRequest;
+use RoundlyConsulting\Git\Dto\Input\NewRelease;
+use RoundlyConsulting\Git\Dto\Input\NewRepository;
+use RoundlyConsulting\Git\Dto\Input\NewTag;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
+use RoundlyConsulting\Git\Dto\Input\UpdatedFile;
 use RoundlyConsulting\Git\Dto\Installation;
+use RoundlyConsulting\Git\Dto\Issue;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\Page;
+use RoundlyConsulting\Git\Dto\PullRequest;
 use RoundlyConsulting\Git\Dto\RateLimitStatus;
+use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
+use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
+use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
+use RoundlyConsulting\Git\Query\CommitQuery;
 use RoundlyConsulting\Git\Webhooks\Webhooks;
 
+/**
+ * Everything a forge driver answers.
+ *
+ * The rule for this file: if `BaseProvider` implements it, it belongs HERE. A method
+ * that lives only on the concrete driver is unreachable through the `Provider` type
+ * without an `instanceof`, is not covered by the `Testing\ProviderFake` double,
+ * and — when a driver forgets to implement it — answers PHP's fatal "undefined method"
+ * instead of `FeatureNotSupportedException`. Adding it here is what makes the fake's
+ * gaps a compile error rather than a host application's runtime surprise.
+ */
 interface Provider
 {
     public function name(): string;
@@ -46,6 +73,9 @@ interface Provider
 
     /** @return list<FeatureInfo> */
     public function featureMatrix(): array;
+
+    /** @return list<FeatureInfo> */
+    public function featureInfo(): array;
 
     public function batch(): Batch;
 
@@ -107,6 +137,77 @@ interface Provider
     public function branches(string $path, int $perPage = 30): Page;
 
     public function commit(string $path, string $commit): Commit;
+
+    /** A chainable commit query (branch / author / path / since / until). */
+    public function commits(string $path): CommitQuery;
+
+    /** @return Page<PullRequest> */
+    public function pullRequests(string $path, string $state = 'open', int $perPage = 30): Page;
+
+    public function pullRequest(string $path, int $number): PullRequest;
+
+    /** @return Page<Issue> */
+    public function issues(string $path, string $state = 'open', int $perPage = 30): Page;
+
+    public function issue(string $path, int $number): Issue;
+
+    /** @return Page<Tag> */
+    public function tags(string $path, int $perPage = 30): Page;
+
+    /** @return Page<Release> */
+    public function releases(string $path, int $perPage = 30): Page;
+
+    public function release(string $path, string $tagOrId): Release;
+
+    public function contents(string $path, string $filePath, ?string $ref = null): FileContent;
+
+    public function compare(string $path, string $base, string $head): Comparison;
+
+    /** @return Page<Contributor> */
+    public function contributors(string $path, int $perPage = 30): Page;
+
+    /** @return array<string, int> */
+    public function languages(string $path): array;
+
+    /** @return Page<Repository> */
+    public function searchRepositories(string $query, int $perPage = 30): Page;
+
+    public function createRepository(NewRepository $data): Repository;
+
+    public function createBranch(string $path, NewBranch $data): string;
+
+    public function createFile(string $path, NewFile $data): Commit;
+
+    public function updateFile(string $path, UpdatedFile $data): Commit;
+
+    public function createPullRequest(string $path, NewPullRequest $data): PullRequest;
+
+    /** Close a pull request WITHOUT merging it. It never reopens one. */
+    public function closePullRequest(string $path, int $number): PullRequest;
+
+    /** Approve a pull request as the authenticated account; returns the review's own state. */
+    public function approvePullRequest(string $path, int $number, ?string $body = null): string;
+
+    /**
+     * Merge a pull request; returns the merge commit sha.
+     *
+     * A merge the provider refuses THROWS rather than returning a falsy result — see the
+     * GitHub driver for why a `merged: false` return would be a shape that never arrives.
+     */
+    public function mergePullRequest(
+        string $path,
+        int $number,
+        MergeMethod $method = MergeMethod::Merge,
+        ?string $sha = null,
+        ?string $title = null,
+        ?string $message = null,
+    ): string;
+
+    public function comment(string $path, NewComment $data): Comment;
+
+    public function createRelease(string $path, NewRelease $data): Release;
+
+    public function createTag(string $path, NewTag $data): Tag;
 
     public function cloneUrlForRepository(string $path, string $username, Credentials $credentials): string;
 
