@@ -17,19 +17,25 @@ use RoundlyConsulting\Git\Dto\Input\NewFile;
 use RoundlyConsulting\Git\Dto\Input\NewPullRequest;
 use RoundlyConsulting\Git\Dto\Input\NewRelease;
 use RoundlyConsulting\Git\Dto\Input\NewRepository;
+use RoundlyConsulting\Git\Dto\Input\NewReview;
+use RoundlyConsulting\Git\Dto\Input\NewReviewComment;
 use RoundlyConsulting\Git\Dto\Input\NewTag;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\Input\UpdatedFile;
 use RoundlyConsulting\Git\Dto\Issue;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\PullRequest;
+use RoundlyConsulting\Git\Dto\PullRequestReview;
+use RoundlyConsulting\Git\Dto\PullRequestReviewComment;
 use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Enums\DiffSide;
 use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Enums\ResourceState;
+use RoundlyConsulting\Git\Enums\ReviewEvent;
 use RoundlyConsulting\Git\Facades\Registry;
 
 /**
@@ -180,6 +186,114 @@ it('drives the close / approve / merge flow', function (): void {
     $registry->assertSent(ProviderName::Github, 'approvePullRequest');
     $registry->assertSent(ProviderName::Github, 'mergePullRequest');
     $registry->assertSent(ProviderName::Github, 'closePullRequest');
+});
+
+it('answers a submitted review with the state the event actually means', function (): void {
+    $registry = Registry::fake();
+    $provider = $registry->github();
+
+    // Derived from the event rather than seeded: a fake that answered APPROVED for a
+    // COMMENT review would pass a test of the exact confusion the verdict-in-the-body
+    // design exists to avoid.
+    expect($provider->reviewPullRequest('o/r', 7, new NewReview(
+        event: ReviewEvent::Comment,
+        body: '**Verdict: changes_requested**',
+        comments: [new NewReviewComment('app/Foo.php', 42, 'This nulls out.')],
+    )))->state->toBe('COMMENTED')
+        ->body->toBe('**Verdict: changes_requested**')
+        ->and($provider->reviewPullRequest('o/r', 7, new NewReview(ReviewEvent::Approve)))
+        ->state->toBe('APPROVED');
+
+    $registry->assertSent(ProviderName::Github, 'reviewPullRequest');
+});
+
+it('reads back the reviews and comments it was seeded, and an empty pair when it was not', function (): void {
+    $provider = Registry::fake()->github();
+
+    expect($provider->pullRequestReviews('o/r', 7))->reviews->toBe([])->comments->toBe([]);
+
+    $provider->seedPullRequestReviews(
+        [new PullRequestReview(
+            provider: ProviderName::Github,
+            id: '11',
+            state: 'COMMENTED',
+            body: 'Two findings.',
+            author: new Author(name: 'reviewer', email: '', avatar: null),
+            url: null,
+            submittedAt: Carbon::now(),
+        )],
+        [new PullRequestReviewComment(
+            provider: ProviderName::Github,
+            id: '21',
+            body: 'This nulls out.',
+            path: 'app/Foo.php',
+            line: 42,
+            side: DiffSide::Right,
+            author: null,
+            url: null,
+            createdAt: Carbon::now(),
+        )],
+    );
+
+    expect($provider->pullRequestReviews('o/r', 7))
+        ->reviews->toHaveCount(1)
+        ->comments->toHaveCount(1);
+});
+
+it('seeds the two halves separately and still joins them', function (): void {
+    // The join the real provider does across two endpoints has to hold on the fake too,
+    // or a host asserting "changes requested, because of THESE findings" passes here and
+    // fails against GitHub.
+    $provider = Registry::fake()->github();
+
+    $provider->seedPullRequestReviews(
+        [new PullRequestReview(
+            provider: ProviderName::Github,
+            id: '12',
+            state: 'CHANGES_REQUESTED',
+            body: 'One blocker.',
+            author: null,
+            url: null,
+            submittedAt: Carbon::now(),
+        )],
+        [new PullRequestReviewComment(
+            provider: ProviderName::Github,
+            id: '21',
+            body: 'Blocking.',
+            path: 'app/Foo.php',
+            line: 42,
+            side: DiffSide::Right,
+            author: null,
+            url: null,
+            createdAt: Carbon::now(),
+            reviewId: '12',
+        )],
+    );
+
+    $reviews = $provider->pullRequestReviews('o/r', 7);
+
+    expect($reviews->latest()?->state)->toBe('CHANGES_REQUESTED')
+        ->and($reviews->commentsFor('12'))->toHaveCount(1);
+});
+
+it('answers a seeded review instead of one synthesized from the input', function (): void {
+    // The escape hatch for a host that needs a specific id or url back — it OVERRIDES the
+    // event-derived state, which is the whole point of seeding one.
+    $provider = Registry::fake()->github();
+
+    $provider->seedSubmittedReview(new PullRequestReview(
+        provider: ProviderName::Github,
+        id: 'seeded',
+        state: 'DISMISSED',
+        body: null,
+        author: null,
+        url: 'https://github.test/r/1',
+        submittedAt: Carbon::now(),
+    ));
+
+    expect($provider->reviewPullRequest('o/r', 7, new NewReview(ReviewEvent::Approve)))
+        ->id->toBe('seeded')
+        ->state->toBe('DISMISSED');
 });
 
 it('merges and approves without any seeding at all', function (): void {

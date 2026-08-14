@@ -27,6 +27,7 @@ use RoundlyConsulting\Git\Dto\Input\NewFile;
 use RoundlyConsulting\Git\Dto\Input\NewPullRequest;
 use RoundlyConsulting\Git\Dto\Input\NewRelease;
 use RoundlyConsulting\Git\Dto\Input\NewRepository;
+use RoundlyConsulting\Git\Dto\Input\NewReview;
 use RoundlyConsulting\Git\Dto\Input\NewTag;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\Input\UpdatedFile;
@@ -35,6 +36,9 @@ use RoundlyConsulting\Git\Dto\Issue;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\Page;
 use RoundlyConsulting\Git\Dto\PullRequest;
+use RoundlyConsulting\Git\Dto\PullRequestReview;
+use RoundlyConsulting\Git\Dto\PullRequestReviewComment;
+use RoundlyConsulting\Git\Dto\PullRequestReviews;
 use RoundlyConsulting\Git\Dto\RateLimitStatus;
 use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
@@ -44,6 +48,7 @@ use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Enums\ResourceState;
+use RoundlyConsulting\Git\Enums\ReviewEvent;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\Interfaces\Provider;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
@@ -211,6 +216,27 @@ final class ProviderFake implements Provider
     public function seedApprovalState(string $state): self
     {
         return $this->seed('approvalState', $state);
+    }
+
+    /** The review `reviewPullRequest()` answers with, instead of one built from the input. */
+    public function seedSubmittedReview(PullRequestReview $review): self
+    {
+        return $this->seed('pullRequestReview', $review);
+    }
+
+    /**
+     * What `pullRequestReviews()` reads back.
+     *
+     * The two halves are seeded separately because they arrive from two endpoints and a
+     * host asserting on "changes requested with three findings" needs to seed the
+     * findings independently of the verdict that summarizes them.
+     *
+     * @param  list<PullRequestReview>  $reviews
+     * @param  list<PullRequestReviewComment>  $comments
+     */
+    public function seedPullRequestReviews(array $reviews, array $comments = []): self
+    {
+        return $this->seed('pullRequestReviews', $reviews)->seed('pullRequestReviewComments', $comments);
     }
 
     public function seedInstallation(Installation $installation): self
@@ -651,6 +677,46 @@ final class ProviderFake implements Provider
 
         /** @var string */
         return $this->seeded['approvalState'] ?? 'APPROVED';
+    }
+
+    /**
+     * The review, synthesized from the input — a write, so it never throws.
+     *
+     * The state is derived from the event the caller submitted rather than seeded,
+     * because that mapping is the one thing a host asserting on this call is checking:
+     * a fake that answered `APPROVED` for a `COMMENT` review would pass a test of the
+     * exact confusion this whole verdict-in-the-body design exists to avoid.
+     */
+    public function reviewPullRequest(string $path, int $number, NewReview $data): PullRequestReview
+    {
+        $this->record('reviewPullRequest', [$path, $number, $data]);
+
+        /** @var PullRequestReview */
+        return $this->seeded['pullRequestReview'] ?? new PullRequestReview(
+            provider: $this->name,
+            id: 'fake-review',
+            state: match ($data->event) {
+                ReviewEvent::Approve => 'APPROVED',
+                ReviewEvent::RequestChanges => 'CHANGES_REQUESTED',
+                ReviewEvent::Comment => 'COMMENTED',
+            },
+            body: $data->body,
+            author: new Author(name: 'fake', email: '', avatar: null),
+            url: null,
+            submittedAt: Carbon::now(),
+        );
+    }
+
+    public function pullRequestReviews(string $path, int $number, int $perPage = 100, int $maxPages = 5): PullRequestReviews
+    {
+        $this->record('pullRequestReviews', [$path, $number, $perPage, $maxPages]);
+
+        /** @var list<PullRequestReview> $reviews */
+        $reviews = $this->list('pullRequestReviews');
+        /** @var list<PullRequestReviewComment> $comments */
+        $comments = $this->list('pullRequestReviewComments');
+
+        return new PullRequestReviews(reviews: $reviews, comments: $comments);
     }
 
     public function mergePullRequest(

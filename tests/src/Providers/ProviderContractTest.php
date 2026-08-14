@@ -2,7 +2,9 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Git\Dto\Input\NewReview;
 use RoundlyConsulting\Git\Enums\Feature;
+use RoundlyConsulting\Git\Enums\ReviewEvent;
 use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Interfaces\Provider;
 use RoundlyConsulting\Git\Providers\BaseProvider;
@@ -45,9 +47,14 @@ it('refuses an unsupported pull-request write instead of fatalling', function ()
     // Before the base-class stubs existed these three were declared on the GitHub driver
     // ONLY, so `Registry::gitlab()->mergePullRequest(...)` was an "undefined method"
     // fatal — uncatchable by a consumer that catches this package's exceptions.
+    $review = new NewReview(ReviewEvent::Comment, 'Findings.');
+
     expect(fn () => gitlab()->closePullRequest('g/p', 1))->toThrow(FeatureNotSupportedException::class)
         ->and(fn () => gitlab()->approvePullRequest('g/p', 1))->toThrow(FeatureNotSupportedException::class)
         ->and(fn () => gitlab()->mergePullRequest('g/p', 1))->toThrow(FeatureNotSupportedException::class)
+        ->and(fn () => gitlab()->reviewPullRequest('g/p', 1, $review))->toThrow(FeatureNotSupportedException::class)
+        ->and(fn () => gitlab()->pullRequestReviews('g/p', 1))->toThrow(FeatureNotSupportedException::class)
+        ->and(fn () => bitbucket()->reviewPullRequest('g/p', 1, $review))->toThrow(FeatureNotSupportedException::class)
         ->and(fn () => bitbucket()->mergePullRequest('g/p', 1))->toThrow(FeatureNotSupportedException::class);
 });
 
@@ -55,8 +62,12 @@ it('reports the pull-request write features on github only', function (): void {
     expect(github()->supportsAll(
         Feature::ClosePullRequest,
         Feature::ApprovePullRequest,
+        Feature::ReviewPullRequest,
+        Feature::ListPullRequestReviews,
         Feature::MergePullRequest,
     ))->toBeTrue()
         ->and(gitlab()->supportsAny(Feature::MergePullRequest, Feature::ApprovePullRequest))->toBeFalse()
-        ->and(bitbucket()->supportsAny(Feature::MergePullRequest, Feature::ApprovePullRequest))->toBeFalse();
+        ->and(gitlab()->supportsAny(Feature::ReviewPullRequest, Feature::ListPullRequestReviews))->toBeFalse()
+        ->and(bitbucket()->supportsAny(Feature::MergePullRequest, Feature::ApprovePullRequest))->toBeFalse()
+        ->and(bitbucket()->supportsAny(Feature::ReviewPullRequest, Feature::ListPullRequestReviews))->toBeFalse();
 });

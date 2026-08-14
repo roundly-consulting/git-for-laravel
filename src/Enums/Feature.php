@@ -35,6 +35,8 @@ enum Feature: string
     case CreatePullRequest = 'create_pull_request';
     case ClosePullRequest = 'close_pull_request';
     case ApprovePullRequest = 'approve_pull_request';
+    case ReviewPullRequest = 'review_pull_request';
+    case ListPullRequestReviews = 'pull_request_reviews';
     case MergePullRequest = 'merge_pull_request';
     case CreateComment = 'create_comment';
     case CreateRelease = 'create_release';
@@ -73,6 +75,8 @@ enum Feature: string
             self::CreatePullRequest => 'Open a new pull/merge request.',
             self::ClosePullRequest => 'Close a pull/merge request without merging it.',
             self::ApprovePullRequest => 'Approve a pull/merge request as the authenticated account.',
+            self::ReviewPullRequest => 'Publish a review on a pull/merge request, with inline comments.',
+            self::ListPullRequestReviews => 'Read the reviews left on a pull/merge request, with their inline comments.',
             self::MergePullRequest => 'Merge a pull/merge request.',
             self::CreateComment => 'Add a comment to a pull request, merge request, or issue.',
             self::CreateRelease => 'Create a new release.',

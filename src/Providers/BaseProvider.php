@@ -34,6 +34,7 @@ use RoundlyConsulting\Git\Dto\Input\NewFile;
 use RoundlyConsulting\Git\Dto\Input\NewPullRequest;
 use RoundlyConsulting\Git\Dto\Input\NewRelease;
 use RoundlyConsulting\Git\Dto\Input\NewRepository;
+use RoundlyConsulting\Git\Dto\Input\NewReview;
 use RoundlyConsulting\Git\Dto\Input\NewTag;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\Input\UpdatedFile;
@@ -42,6 +43,8 @@ use RoundlyConsulting\Git\Dto\Issue;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\Page;
 use RoundlyConsulting\Git\Dto\PullRequest;
+use RoundlyConsulting\Git\Dto\PullRequestReview;
+use RoundlyConsulting\Git\Dto\PullRequestReviews;
 use RoundlyConsulting\Git\Dto\RateLimitStatus;
 use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
@@ -418,6 +421,16 @@ abstract class BaseProvider implements Provider
     }
 
     public function approvePullRequest(string $path, int $number, ?string $body = null): string
+    {
+        $this->featureNotSupported();
+    }
+
+    public function reviewPullRequest(string $path, int $number, NewReview $data): PullRequestReview
+    {
+        $this->featureNotSupported();
+    }
+
+    public function pullRequestReviews(string $path, int $number, int $perPage = 100, int $maxPages = 5): PullRequestReviews
     {
         $this->featureNotSupported();
     }
@@ -908,6 +921,49 @@ abstract class BaseProvider implements Provider
             page: $page,
             hasMore: $this->hasMorePages($response, count($items), $perPage),
         );
+    }
+
+    /**
+     * Read a list endpoint to its end — or to `$maxPages` — as one plain list.
+     *
+     * The bounded sibling of {@see lazyPages()}, for the endpoints whose answer is a
+     * whole list rather than a page a caller walks: a `Page` there would hand back the
+     * OLDEST slice of an ascending endpoint and let a caller act on it as if it were all
+     * of it.
+     *
+     * Built on {@see paginate()} rather than on `get()` directly, so these endpoints
+     * inherit the one pagination story the package has — `pageParameters()` for the
+     * query shape and `hasMorePages()` for where the list ends — instead of a second,
+     * private copy that drifts from it.
+     *
+     * `$maxPages` is a bound on a pathological thread, not a page size; below 1 it is
+     * read as 1, because "fetch no pages" is never what a caller asking for a list means.
+     *
+     * @template T
+     *
+     * @param  array<string, mixed>  $query
+     * @param  Closure(array<string, mixed>): T  $map
+     * @param  string|null  $itemsKey  json key holding the list (null = root array)
+     * @return list<T>
+     */
+    protected function collectPages(string $url, array $query, int $perPage, int $maxPages, Closure $map, ?string $itemsKey = null): array
+    {
+        /** @var list<T> $items */
+        $items = [];
+
+        for ($page = 1; $page <= max(1, $maxPages); $page++) {
+            $result = $this->paginate($url, $query, $page, $perPage, $map, $itemsKey);
+
+            foreach ($result->items as $item) {
+                $items[] = $item;
+            }
+
+            if (! $result->hasMore) {
+                break;
+            }
+        }
+
+        return $items;
     }
 
     /**

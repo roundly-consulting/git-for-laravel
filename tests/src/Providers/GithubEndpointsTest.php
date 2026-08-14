@@ -15,6 +15,8 @@ use RoundlyConsulting\Git\Dto\Input\NewFile;
 use RoundlyConsulting\Git\Dto\Input\NewPullRequest;
 use RoundlyConsulting\Git\Dto\Input\NewRelease;
 use RoundlyConsulting\Git\Dto\Input\NewRepository;
+use RoundlyConsulting\Git\Dto\Input\NewReview;
+use RoundlyConsulting\Git\Dto\Input\NewReviewComment;
 use RoundlyConsulting\Git\Dto\Input\NewTag;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\Input\UpdatedFile;
@@ -24,8 +26,10 @@ use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Enums\DiffSide;
 use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
+use RoundlyConsulting\Git\Enums\ReviewEvent;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\Facades\Registry;
 
@@ -194,6 +198,222 @@ it('omits an absent review body rather than sending null', function () {
     github()->approvePullRequest('o/r', 7);
 
     Http::assertSent(fn ($request): bool => ! array_key_exists('body', $request->data()));
+});
+
+it('publishes a review with its inline comments in ONE request', function () {
+    // Atomic on purpose: GitHub publishes a review as a unit, so posting the comments
+    // separately would leave half a review visible the moment anything failed partway.
+    Http::fake(['*/repos/o/r/pulls/7/reviews' => Http::response([
+        'id' => 11, 'state' => 'COMMENTED', 'body' => '**Verdict: changes_requested**',
+        'user' => ['login' => 'cosmos[bot]', 'avatar_url' => 'a'],
+        'html_url' => 'url', 'submitted_at' => '2020-01-01T00:00:00Z',
+    ])]);
+
+    $review = github()->reviewPullRequest('o/r', 7, new NewReview(
+        event: ReviewEvent::Comment,
+        body: '**Verdict: changes_requested**',
+        comments: [new NewReviewComment('app/Foo.php', 42, 'This nulls out on the retry.')],
+    ));
+
+    expect($review->state)->toBe('COMMENTED')
+        ->and($review->author?->name)->toBe('cosmos[bot]')
+        ->and($review->submittedAt?->toDateString())->toBe('2020-01-01');
+
+    Http::assertSent(fn ($request): bool => $request['event'] === 'COMMENT'
+        && $request['comments'][0]['path'] === 'app/Foo.php'
+        && $request['comments'][0]['line'] === 42
+        // Defaulted, and sent in GitHub's own spelling — the head is what a review of a
+        // change is about, and LEFT would anchor the finding to the file as it is today.
+        && $request['comments'][0]['side'] === 'RIGHT');
+});
+
+it('anchors a finding to a SPAN of lines when it is given one', function () {
+    Http::fake(['*/repos/o/r/pulls/7/reviews' => Http::response(['id' => 11, 'state' => 'COMMENTED'])]);
+
+    github()->reviewPullRequest('o/r', 7, new NewReview(
+        event: ReviewEvent::Comment,
+        body: 'One finding about a block.',
+        comments: [new NewReviewComment('app/Foo.php', 48, 'This whole branch is unreachable.', DiffSide::Right, startLine: 42)],
+    ));
+
+    Http::assertSent(function ($request): bool {
+        $comment = $request['comments'][0];
+
+        // `start_side` travels with `start_line`: a span still has to name a side, and
+        // GitHub only defaults it when the key is absent.
+        return $comment['start_line'] === 42 && $comment['line'] === 48
+            && $comment['start_side'] === 'RIGHT' && $comment['side'] === 'RIGHT';
+    });
+});
+
+it('omits the span keys entirely on a single-line comment', function () {
+    // Not "sends them as null": GitHub reads the PRESENCE of `start_line` as "this is a
+    // multi-line comment" and 422s a span that starts where it ends.
+    Http::fake(['*/repos/o/r/pulls/7/reviews' => Http::response(['id' => 11, 'state' => 'COMMENTED'])]);
+
+    github()->reviewPullRequest('o/r', 7, new NewReview(
+        event: ReviewEvent::Comment,
+        body: 'One finding.',
+        comments: [new NewReviewComment('app/Foo.php', 42, 'This nulls out.')],
+    ));
+
+    Http::assertSent(fn ($request): bool => ! array_key_exists('start_line', $request['comments'][0])
+        && ! array_key_exists('start_side', $request['comments'][0]));
+});
+
+it('omits an empty comment list rather than sending one', function () {
+    Http::fake(['*/repos/o/r/pulls/7/reviews' => Http::response(['id' => 11, 'state' => 'COMMENTED'])]);
+
+    github()->reviewPullRequest('o/r', 7, new NewReview(ReviewEvent::Comment, 'Nothing to flag.'));
+
+    Http::assertSent(fn ($request): bool => ! array_key_exists('comments', $request->data()));
+});
+
+it('leaves a pending review unsubmitted rather than dating it to the epoch', function () {
+    // A pending review has no `submitted_at`. Null says "not submitted"; a parsed empty
+    // string would say "submitted in 1970", which a reader sorts to the top.
+    Http::fake(['*/repos/o/r/pulls/7/reviews' => Http::response(['id' => 11, 'state' => 'PENDING', 'body' => ''])]);
+
+    $review = github()->reviewPullRequest('o/r', 7, new NewReview(ReviewEvent::Comment, 'x'));
+
+    expect($review->submittedAt)->toBeNull()
+        ->and($review->body)->toBeNull();
+});
+
+it('THROWS when a comment is anchored to a line outside the diff', function () {
+    // GitHub's own 422. A decline the caller has to be TOLD about — the review was
+    // written against a line nobody changed — never dressed up as the provider failing.
+    Http::fake(['*/repos/o/r/pulls/7/reviews' => Http::response([
+        'message' => 'Validation Failed',
+        'errors' => [['resource' => 'PullRequestReviewComment', 'field' => 'line']],
+    ], 422)]);
+
+    expect(fn () => github()->reviewPullRequest('o/r', 7, new NewReview(
+        event: ReviewEvent::Comment,
+        body: 'Findings.',
+        comments: [new NewReviewComment('app/Foo.php', 9_999, 'Out of the diff.')],
+    )))->toThrow(RequestException::class);
+});
+
+it('reads the reviews and their inline comments from the two endpoints they live on', function () {
+    Http::fake([
+        '*/repos/o/r/pulls/7/reviews*' => Http::response([[
+            'id' => 11, 'state' => 'COMMENTED', 'body' => 'Two findings.',
+            'user' => ['login' => 'reviewer'], 'submitted_at' => '2020-01-02T00:00:00Z',
+        ]]),
+        '*/repos/o/r/pulls/7/comments*' => Http::response([
+            [
+                'id' => 21, 'body' => 'This nulls out.', 'path' => 'app/Foo.php', 'line' => 42,
+                'side' => 'RIGHT', 'user' => ['login' => 'reviewer'], 'created_at' => '2020-01-02T00:00:00Z',
+            ],
+            // Outdated: the lines it was anchored to were rewritten, so GitHub drops the
+            // anchor and keeps the comment.
+            ['id' => 22, 'body' => 'Stale.', 'path' => 'app/Bar.php', 'line' => null, 'side' => 'RIGHT'],
+        ]),
+    ]);
+
+    $reviews = github()->pullRequestReviews('o/r', 7);
+
+    expect($reviews->reviews)->toHaveCount(1)
+        ->and($reviews->reviews[0]->state)->toBe('COMMENTED')
+        ->and($reviews->comments)->toHaveCount(2)
+        ->and($reviews->comments[0]->line)->toBe(42)
+        ->and($reviews->comments[0]->side)->toBe(DiffSide::Right)
+        ->and($reviews->comments[0]->isOutdated())->toBeFalse()
+        ->and($reviews->comments[1]->line)->toBeNull()
+        ->and($reviews->comments[1]->isOutdated())->toBeTrue()
+        ->and($reviews->comments[1]->createdAt)->toBeNull();
+});
+
+it('dates a comment to null rather than to NOW when the payload carries no timestamp', function () {
+    // `Carbon::parse('')` is `now()`, so an empty `created_at` would date the finding to
+    // the moment it was READ — which sorts to the top of the thread and reads as the
+    // newest thing anyone said about the pull request.
+    Http::fake([
+        '*/pulls/7/reviews*' => Http::response([['id' => 1, 'state' => 'COMMENTED', 'submitted_at' => '']]),
+        '*/pulls/7/comments*' => Http::response([
+            ['id' => 21, 'body' => 'x', 'path' => 'a.php', 'line' => 1, 'side' => 'RIGHT', 'created_at' => ''],
+        ]),
+    ]);
+
+    $reviews = github()->pullRequestReviews('o/r', 7);
+
+    expect($reviews->comments[0]->createdAt)->toBeNull()
+        ->and($reviews->reviews[0]->submittedAt)->toBeNull();
+});
+
+it('joins each finding back to the review that published it', function () {
+    // The two endpoints do not do this join: `/reviews` carries the verdict, `/comments`
+    // the findings, and only the comment side carries the id that links them. Without it
+    // a caller reading "changes requested" cannot say WHICH findings explain it.
+    Http::fake([
+        '*/pulls/7/reviews*' => Http::response([
+            ['id' => 11, 'state' => 'COMMENTED', 'submitted_at' => '2020-01-01T00:00:00Z'],
+            ['id' => 12, 'state' => 'CHANGES_REQUESTED', 'submitted_at' => '2020-01-03T00:00:00Z'],
+        ]),
+        '*/pulls/7/comments*' => Http::response([
+            ['id' => 21, 'body' => 'Old.', 'path' => 'a.php', 'line' => 1, 'pull_request_review_id' => 11],
+            ['id' => 22, 'body' => 'Blocking.', 'path' => 'b.php', 'line' => 2, 'pull_request_review_id' => 12],
+            // A standalone reply on the diff belongs to no review at all.
+            ['id' => 23, 'body' => 'Reply.', 'path' => 'b.php', 'line' => 2],
+        ]),
+    ]);
+
+    $reviews = github()->pullRequestReviews('o/r', 7);
+    $latest = $reviews->latest();
+
+    expect($latest?->state)->toBe('CHANGES_REQUESTED')
+        ->and($reviews->comments[0]->reviewId)->toBe('11')
+        ->and($reviews->comments[2]->reviewId)->toBeNull()
+        ->and($reviews->commentsFor($latest))->toHaveCount(1)
+        ->and($reviews->commentsFor($latest)[0]->body)->toBe('Blocking.')
+        ->and($reviews->commentsFor('11'))->toHaveCount(1)
+        ->and($reviews->isEmpty())->toBeFalse();
+});
+
+it('walks the review pages, because GitHub serves the OLDEST first', function () {
+    // A single page of a long-lived pull request is its oldest reviews, and there is no
+    // `direction` on this endpoint — so a caller looking for "the latest verdict" would
+    // read the hundredth-oldest one and act on it.
+    $page = 0;
+    Http::fake(function ($request) use (&$page) {
+        if (str_contains((string) $request->url(), '/comments')) {
+            return Http::response([]);
+        }
+
+        $page++;
+
+        // Page 1 is FULL (per_page=2), so there must be a second request; page 2 is short
+        // and ends the walk.
+        return Http::response($page === 1
+            ? [['id' => 1, 'state' => 'COMMENTED'], ['id' => 2, 'state' => 'COMMENTED']]
+            : [['id' => 3, 'state' => 'APPROVED']]);
+    });
+
+    $reviews = github()->pullRequestReviews('o/r', 7, perPage: 2);
+
+    expect($reviews->reviews)->toHaveCount(3)
+        ->and($reviews->reviews[2]->state)->toBe('APPROVED');
+});
+
+it('stops walking at the page cap rather than paging a pathological thread forever', function () {
+    Http::fake(['*' => Http::response([['id' => 1, 'state' => 'COMMENTED']])]);
+
+    // Every page comes back FULL, so only the cap ends it.
+    $reviews = github()->pullRequestReviews('o/r', 7, perPage: 1, maxPages: 3);
+
+    expect($reviews->reviews)->toHaveCount(3);
+});
+
+it('names nobody rather than an empty author for a deleted account', function () {
+    // GitHub sends a review with no `user` when the account is gone. An `Author` whose
+    // name is `''` reads as "somebody" to every null check downstream.
+    Http::fake([
+        '*/pulls/7/reviews*' => Http::response([['id' => 1, 'state' => 'COMMENTED', 'user' => ['login' => '']]]),
+        '*/pulls/7/comments*' => Http::response([]),
+    ]);
+
+    expect(github()->pullRequestReviews('o/r', 7)->reviews[0]->author)->toBeNull();
 });
 
 it('merges a pull request and returns the merge commit', function () {

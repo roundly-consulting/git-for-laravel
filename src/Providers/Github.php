@@ -25,6 +25,8 @@ use RoundlyConsulting\Git\Dto\Input\NewFile;
 use RoundlyConsulting\Git\Dto\Input\NewPullRequest;
 use RoundlyConsulting\Git\Dto\Input\NewRelease;
 use RoundlyConsulting\Git\Dto\Input\NewRepository;
+use RoundlyConsulting\Git\Dto\Input\NewReview;
+use RoundlyConsulting\Git\Dto\Input\NewReviewComment;
 use RoundlyConsulting\Git\Dto\Input\NewTag;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\Input\UpdatedFile;
@@ -33,6 +35,9 @@ use RoundlyConsulting\Git\Dto\Issue;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\Page;
 use RoundlyConsulting\Git\Dto\PullRequest;
+use RoundlyConsulting\Git\Dto\PullRequestReview;
+use RoundlyConsulting\Git\Dto\PullRequestReviewComment;
+use RoundlyConsulting\Git\Dto\PullRequestReviews;
 use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
@@ -572,6 +577,96 @@ class Github extends BaseProvider
     }
 
     /**
+     * Publish a review: a verdict, a summary, and the inline comments.
+     *
+     * One request. GitHub publishes a review atomically, so posting the comments one at
+     * a time would leave half a review on the pull request the moment anything failed
+     * partway — and each of those comments would notify every watcher separately.
+     *
+     * **Two different `422`s live on this endpoint**, and a caller has to tell them
+     * apart because only one of them is fixable by re-writing the review:
+     *
+     * - **the verdict** — GitHub refuses `APPROVE` and `REQUEST_CHANGES` from the
+     *   account that opened the pull request. For an App that authors pull requests,
+     *   that is every one of them; `COMMENT` is always accepted.
+     * - **an anchor** — a comment on a line the diff does not contain. The review was
+     *   written against a line nobody changed, and re-anchoring it is the fix.
+     *
+     * Both arrive as the `RequestException` every other refusal in this package does.
+     */
+    public function reviewPullRequest(string $path, int $number, NewReview $data): PullRequestReview
+    {
+        $this->guardSupported(Feature::ReviewPullRequest);
+        $this->guardAuthenticated();
+
+        $response = $this->send('POST', "/repos/{$path}/pulls/{$number}/reviews", array_filter([
+            'event' => $data->event->wire(),
+            'body' => $data->body,
+            'comments' => array_map($this->reviewComment(...), $data->comments),
+        ], fn (mixed $value): bool => $value !== null && $value !== []));
+
+        return $this->mapper()->pullRequestReview($response->json());
+    }
+
+    /**
+     * One inline comment, in GitHub's wire shape.
+     *
+     * `start_line`/`start_side` are sent only for a span. GitHub reads their PRESENCE as
+     * "this is a multi-line comment" and answers `422` when `start_line` equals `line`,
+     * so a null-safe `start_line` on every comment would break every single-line one.
+     *
+     * @return array<string, mixed>
+     */
+    private function reviewComment(NewReviewComment $comment): array
+    {
+        return array_filter([
+            'path' => $comment->path,
+            'line' => $comment->line,
+            'side' => $comment->side->wire(),
+            'body' => $comment->body,
+            'start_line' => $comment->startLine,
+            // GitHub defaults `start_side` to `side` only when it is absent, never when
+            // it is null — and a span that straddles nothing still has to name a side.
+            'start_side' => $comment->startLine !== null ? $comment->side->wire() : null,
+        ], fn (mixed $value): bool => $value !== null);
+    }
+
+    /**
+     * Every review on a pull request, and every inline comment.
+     *
+     * Two endpoints, because GitHub keeps them apart: `/reviews` carries the verdicts
+     * and summaries, `/comments` the anchored findings. A caller reading only the first
+     * gets "changes requested" with nothing that says why.
+     *
+     * **Both are walked to the end, up to `$maxPages`.** GitHub serves them ASCENDING and
+     * offers no `direction` here, so a single page of a long-lived pull request contains
+     * the OLDEST reviews — and a caller looking for "the latest verdict" would read the
+     * hundredth-oldest one and act on it. The cap is a bound on a pathological thread, not
+     * a page size: at the default it is 500 of each.
+     */
+    public function pullRequestReviews(string $path, int $number, int $perPage = 100, int $maxPages = 5): PullRequestReviews
+    {
+        $this->guardSupported(Feature::ListPullRequestReviews);
+
+        return new PullRequestReviews(
+            reviews: $this->collectPages(
+                "/repos/{$path}/pulls/{$number}/reviews",
+                [],
+                $perPage,
+                $maxPages,
+                fn (array $review): PullRequestReview => $this->mapper()->pullRequestReview($review),
+            ),
+            comments: $this->collectPages(
+                "/repos/{$path}/pulls/{$number}/comments",
+                [],
+                $perPage,
+                $maxPages,
+                fn (array $comment): PullRequestReviewComment => $this->mapper()->pullRequestReviewComment($comment),
+            ),
+        );
+    }
+
+    /**
      * Merge a pull request. Returns the merge commit sha.
      *
      * **A merge GitHub will not perform THROWS**, like every other refusal in this
@@ -778,6 +873,8 @@ class Github extends BaseProvider
             Feature::CreatePullRequest,
             Feature::ClosePullRequest,
             Feature::ApprovePullRequest,
+            Feature::ReviewPullRequest,
+            Feature::ListPullRequestReviews,
             Feature::MergePullRequest,
             Feature::CreateComment,
             Feature::CreateRelease,

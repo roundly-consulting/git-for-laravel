@@ -21,6 +21,7 @@ use RoundlyConsulting\Git\Dto\Input\NewFile;
 use RoundlyConsulting\Git\Dto\Input\NewPullRequest;
 use RoundlyConsulting\Git\Dto\Input\NewRelease;
 use RoundlyConsulting\Git\Dto\Input\NewRepository;
+use RoundlyConsulting\Git\Dto\Input\NewReview;
 use RoundlyConsulting\Git\Dto\Input\NewTag;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\Input\UpdatedFile;
@@ -29,6 +30,8 @@ use RoundlyConsulting\Git\Dto\Issue;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\Page;
 use RoundlyConsulting\Git\Dto\PullRequest;
+use RoundlyConsulting\Git\Dto\PullRequestReview;
+use RoundlyConsulting\Git\Dto\PullRequestReviews;
 use RoundlyConsulting\Git\Dto\RateLimitStatus;
 use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
@@ -187,6 +190,29 @@ interface Provider
 
     /** Approve a pull request as the authenticated account; returns the review's own state. */
     public function approvePullRequest(string $path, int $number, ?string $body = null): string;
+
+    /**
+     * Publish a review — a verdict, a summary, and inline comments on the diff.
+     *
+     * The general form of {@see approvePullRequest()}, and the one an account that
+     * AUTHORS pull requests can use on its own work: a forge refuses `APPROVE` and
+     * `REQUEST_CHANGES` from the author (`422`) but takes a `COMMENT` review from
+     * anyone.
+     *
+     * **An inline comment anchored off the diff is a `422` too**, and it is a different
+     * thing entirely — the review was written against a line nobody changed. Both arrive
+     * as `RequestException`; the caller tells them apart by whether it sent comments.
+     */
+    public function reviewPullRequest(string $path, int $number, NewReview $data): PullRequestReview;
+
+    /**
+     * Every review left on a pull request, with the inline comments they anchored.
+     *
+     * Walked to the end (or to `$maxPages`), because a forge serves these ASCENDING: one
+     * page of a long thread is its OLDEST reviews, and a caller reading "the latest
+     * verdict" off it would act on the wrong one.
+     */
+    public function pullRequestReviews(string $path, int $number, int $perPage = 100, int $maxPages = 5): PullRequestReviews;
 
     /**
      * Merge a pull request; returns the merge commit sha.

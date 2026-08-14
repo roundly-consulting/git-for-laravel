@@ -9,9 +9,13 @@ use RoundlyConsulting\Git\Dto\Input\NewFile;
 use RoundlyConsulting\Git\Dto\Input\NewPullRequest;
 use RoundlyConsulting\Git\Dto\Input\NewRelease;
 use RoundlyConsulting\Git\Dto\Input\NewRepository;
+use RoundlyConsulting\Git\Dto\Input\NewReview;
+use RoundlyConsulting\Git\Dto\Input\NewReviewComment;
 use RoundlyConsulting\Git\Dto\Input\NewTag;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\Input\UpdatedFile;
+use RoundlyConsulting\Git\Enums\DiffSide;
+use RoundlyConsulting\Git\Enums\ReviewEvent;
 
 it('accepts valid input dtos', function () {
     expect(new NewRepository('acme'))->name->toBe('acme')
@@ -22,7 +26,15 @@ it('accepts valid input dtos', function () {
         ->and(new NewComment(1, 'hi'))->body->toBe('hi')
         ->and(new NewRelease('v1'))->tagName->toBe('v1')
         ->and(new NewTag('v1', 'ref'))->ref->toBe('ref')
-        ->and(new NewWebhook('https://hook'))->events->toBe(['push']);
+        ->and(new NewWebhook('https://hook'))->events->toBe(['push'])
+        ->and(new NewReviewComment('a.php', 3, 'why'))->side->toBe(DiffSide::Right)
+        // No span unless one is asked for — `startLine` null is what keeps a single-line
+        // comment off GitHub's multi-line path.
+        ->and(new NewReviewComment('a.php', 3, 'why'))->startLine->toBeNull()
+        ->and(new NewReviewComment('a.php', 8, 'why', DiffSide::Right, startLine: 3))->startLine->toBe(3)
+        ->and(new NewReview(ReviewEvent::Comment, 'summary'))->comments->toBe([])
+        // An approval carries no body, and that is the ONE event a forge accepts empty.
+        ->and(new NewReview(ReviewEvent::Approve))->body->toBeNull();
 });
 
 it('rejects invalid input dtos', function (Closure $make) {
@@ -47,6 +59,18 @@ it('rejects invalid input dtos', function (Closure $make) {
     'empty tag ref' => [fn () => new NewTag('v1', '')],
     'empty webhook url' => [fn () => new NewWebhook(' ')],
     'no webhook events' => [fn () => new NewWebhook('https://hook', [])],
+    'empty review comment path' => [fn () => new NewReviewComment(' ', 1, 'why')],
+    'empty review comment body' => [fn () => new NewReviewComment('a.php', 1, ' ')],
+    'review comment line below one' => [fn () => new NewReviewComment('a.php', 0, 'why')],
+    'review comment start line below one' => [fn () => new NewReviewComment('a.php', 3, 'why', startLine: 0)],
+    // A span GitHub reads as inverted or collapsed is a 422 whose message never says to
+    // swap the two — so it is caught here, where the fix can be named.
+    'review comment span inverted' => [fn () => new NewReviewComment('a.php', 3, 'why', startLine: 9)],
+    'review comment span collapsed' => [fn () => new NewReviewComment('a.php', 3, 'why', startLine: 3)],
+    // A forge answers a bodyless COMMENT review with the same 422 it answers a comment
+    // anchored off the diff with — so the one that is knowable locally is caught locally.
+    'bodyless comment review' => [fn () => new NewReview(ReviewEvent::Comment, ' ')],
+    'bodyless changes requested' => [fn () => new NewReview(ReviewEvent::RequestChanges)],
 ]);
 
 it('describes an installation token scope', function () {

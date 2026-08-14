@@ -12,9 +12,12 @@ use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Issue;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\PullRequest;
+use RoundlyConsulting\Git\Dto\PullRequestReview;
+use RoundlyConsulting\Git\Dto\PullRequestReviewComment;
 use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
+use RoundlyConsulting\Git\Enums\DiffSide;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Enums\ResourceState;
 use Throwable;
@@ -157,6 +160,93 @@ final class GithubMapper implements ResourceMapper
             createdAt: Carbon::parse($raw['created_at']),
             draft: (bool) ($raw['draft'] ?? false),
             raw: $raw,
+        );
+    }
+
+    /**
+     * A review on a pull request.
+     *
+     * `submitted_at` is absent while a review is a PENDING draft, and null here says so
+     * rather than reading as "submitted at the epoch".
+     *
+     * @param  array<string, mixed>  $raw
+     */
+    public function pullRequestReview(array $raw): PullRequestReview
+    {
+        return new PullRequestReview(
+            provider: $this->provider(),
+            id: (string) $raw['id'],
+            state: (string) ($raw['state'] ?? ''),
+            body: ($raw['body'] ?? '') === '' ? null : $raw['body'],
+            author: $this->reviewAuthor($raw),
+            url: $raw['html_url'] ?? null,
+            submittedAt: $this->timestamp($raw['submitted_at'] ?? null),
+            raw: $raw,
+        );
+    }
+
+    /**
+     * One inline comment on a pull request's diff.
+     *
+     * `line` is null on an OUTDATED comment — the lines it was anchored to were
+     * rewritten, so GitHub keeps the comment and drops the anchor. Falling back to
+     * `original_line` would point a reader at whatever occupies that line NOW, which is
+     * code the comment never mentioned.
+     *
+     * @param  array<string, mixed>  $raw
+     */
+    public function pullRequestReviewComment(array $raw): PullRequestReviewComment
+    {
+        $line = $raw['line'] ?? null;
+        $reviewId = $raw['pull_request_review_id'] ?? null;
+
+        return new PullRequestReviewComment(
+            provider: $this->provider(),
+            id: (string) $raw['id'],
+            body: (string) ($raw['body'] ?? ''),
+            path: (string) ($raw['path'] ?? ''),
+            line: is_numeric($line) ? (int) $line : null,
+            side: DiffSide::tryFrom(mb_strtolower((string) ($raw['side'] ?? ''))),
+            author: $this->reviewAuthor($raw),
+            url: $raw['html_url'] ?? null,
+            createdAt: $this->timestamp($raw['created_at'] ?? null),
+            reviewId: is_int($reviewId) || (is_string($reviewId) && $reviewId !== '') ? (string) $reviewId : null,
+            raw: $raw,
+        );
+    }
+
+    /**
+     * A timestamp, or null when the payload does not carry a usable one.
+     *
+     * `Carbon::parse('')` is NOW, so an empty or absent field would date a comment to
+     * the moment it was read — which sorts to the top of any thread and reads as the
+     * newest thing said. Null is the only honest answer to "when" nobody told us.
+     */
+    private function timestamp(mixed $value): ?Carbon
+    {
+        return is_string($value) && $value !== '' ? Carbon::parse($value) : null;
+    }
+
+    /**
+     * The author, or null when there is nobody to name.
+     *
+     * A deleted account comes back with no `login`, and an `Author` whose name is `''` is
+     * worse than none: every reader downstream tests the AUTHOR for null, so an empty
+     * string reads as "somebody" and prints as nothing.
+     *
+     * @param  array<string, mixed>  $raw
+     */
+    private function reviewAuthor(array $raw): ?Author
+    {
+        if (! isset($raw['user']) || ! is_array($raw['user']) || ($raw['user']['login'] ?? '') === '') {
+            return null;
+        }
+
+        return new Author(
+            name: (string) $raw['user']['login'],
+            email: '',
+            avatar: $raw['user']['avatar_url'] ?? null,
+            raw: $raw['user'],
         );
     }
 
