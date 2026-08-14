@@ -37,8 +37,11 @@ class Registry
      * configured app; a deployment with no app configured gets `null` credentials and
      * therefore an unauthenticated provider, which fails the guard rather than
      * silently falling back to the static token.
+     *
+     * Typed like `github()` — `Provider|Github` — so an IDE completes the GitHub-only
+     * surface on the return of the method whose entire purpose is GitHub App endpoints.
      */
-    public function githubApp(?GithubApp $credentials = null): Provider
+    public function githubApp(?GithubApp $credentials = null): Provider|Github
     {
         return $this->provider(
             ProviderName::Github,

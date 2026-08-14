@@ -322,6 +322,36 @@ $webhook = $github->createWebhook('acme/acme', new NewWebhook('https://example.c
 $github->deleteWebhook('acme/acme', $webhook->id);
 ```
 
+#### Closing, approving, and merging a pull request
+
+```php
+use RoundlyConsulting\Git\Enums\MergeMethod;
+
+$github->closePullRequest('acme/acme', $pr->number);           // PullRequest, state closed
+$github->approvePullRequest('acme/acme', $pr->number, 'LGTM'); // the review's own state
+$sha = $github->mergePullRequest(
+    'acme/acme',
+    $pr->number,
+    MergeMethod::Squash,   // Merge | Squash | Rebase — a repository may disallow any of them
+    sha: $pr->raw()['head']['sha'] ?? null,
+);
+```
+
+Three things worth knowing before you wire this up:
+
+- **A merge the forge refuses THROWS.** `405` (branch protection, a required check, a merge
+  method the repository disallows) and `409` (conflict, or `sha` no longer matching) arrive as
+  `RequestException` — a `200` from that endpoint always means it merged, so there is no
+  `merged: false` to inspect. Read the exception's status to tell "the provider said no" from
+  "the call failed".
+- **Pass `sha`** — the head commit you decided about. Without it, a push landing between the
+  review and the merge is merged unseen; with it, that answers `409`.
+- **GitHub refuses an account approving its own pull request.** For an App, every PR the App
+  opened is its own, so a service that authors PRs cannot also approve them.
+
+GitLab and Bitbucket answer `FeatureNotSupportedException` for all three — check
+`supports(Feature::MergePullRequest)` if you drive more than one forge.
+
 ### Resilience, caching, and rate limits
 
 Requests retry idempotent 429/5xx responses with backoff and are paced by the client-side rate
@@ -366,7 +396,6 @@ JWT library.
 ```php
 use RoundlyConsulting\Git\Dto\Credentials\{GithubAppToken, OauthToken};
 use RoundlyConsulting\Git\Enums\ProviderName;
-use RoundlyConsulting\Git\Enums\ProviderName;
 
 $github = Registry::github(GithubAppToken::for(
     appId: config('git.providers.github.app.id'),
@@ -387,6 +416,31 @@ $github = Registry::github(OauthToken::forProvider(
 When `git.providers.github.app.id` is configured, `Registry::github()` builds a
 `GithubAppToken` automatically — no explicit credential needed. Use a shared cache store (not
 the `array` driver) so minted tokens persist across requests.
+
+#### Persisting a rotated refresh token
+
+**If you store OAuth credentials, listen for `OauthTokenRefreshed`.** Providers that rotate
+refresh tokens invalidate the old one at the moment they issue a new one. The new token goes
+into the token cache, whose entry expires with the *access* token — so once that hour is up,
+the only copy left anywhere is the one you persisted, and it is dead. The connection then
+breaks with nothing having told you why.
+
+```php
+use RoundlyConsulting\Git\Events\OauthTokenRefreshed;
+
+Event::listen(OauthTokenRefreshed::class, function (OauthTokenRefreshed $event) {
+    if ($event->rotated()) {
+        $connection->update([
+            'refresh_token' => $event->refreshToken,
+            'access_token' => $event->accessToken,
+            'expires_at' => $event->expiresAt,
+        ]);
+    }
+});
+```
+
+The event fires on every refresh, rotated or not; `rotated()` is the flag that says the stored
+value has to change. Do not log the event whole — it carries live tokens by design.
 
 #### Repository-scoped tokens
 
@@ -542,6 +596,36 @@ $fake->github()->seedRepositories([$repositoryDto]);
 $fake->assertSent(ProviderName::Github, 'repositories');
 $fake->assertRepositoryCreated('acme/new-repo');
 ```
+
+The double answers the **whole** `Provider` contract — every read, write, installation lookup,
+and the commit query — so a host application never hits an "undefined method" as it grows. Three
+rules make its behaviour predictable:
+
+| Kind of call | Unseeded behaviour |
+| --- | --- |
+| List reads (`pullRequests`, `issues`, `tags`, `releases`, `contributors`, `branches`, `languages`) | an **empty page** — a real provider answer |
+| Single-resource reads (`repository`, `commit`, `contents`, `issue`, `release`, `installation`) | **throws**, naming the seeder to call |
+| Writes (`createPullRequest`, `comment`, `mergePullRequest`, …) | **synthesized from the input**, never throws |
+
+Seeders, all chainable: `seedRepositories` `seedRepository` `seedCreatedRepository`
+`seedCommits` `seedCommit` `seedBranches` `seedPullRequests` `seedPullRequest` `seedIssues`
+`seedIssue` `seedTags` `seedReleases` `seedRelease` `seedContents` `seedComparison`
+`seedContributors` `seedLanguages` `seedSearchResults` `seedComment` `seedMergeCommit`
+`seedApprovalState` `seedUser` `seedInstallation` `seedInstallations` `seedWebhooks`
+`seedCreatedWebhook` `seedBatch`.
+
+```php
+$fake->github()
+    ->seedPullRequest($pullRequestDto)
+    ->seedMergeCommit('abc123');
+
+// closePullRequest() returns the seeded PR with state Closed; mergePullRequest() returns 'abc123'
+```
+
+A few reads fall back on purpose rather than answering empty: `installationRepositories()` reads
+the same bucket as `repositories()`, `installations()` stands in the single seeded installation,
+`searchRepositories()` falls back to the repository bucket, and `pullRequest()` / `issue()` /
+`release()` take the first of their list.
 
 ### Feature detection
 
