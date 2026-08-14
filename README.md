@@ -352,6 +352,57 @@ Three things worth knowing before you wire this up:
 GitLab and Bitbucket answer `FeatureNotSupportedException` for all three — check
 `supports(Feature::MergePullRequest)` if you drive more than one forge.
 
+#### Reviewing a pull request
+
+A whole review in one call — a verdict, a summary, and inline comments anchored to the diff:
+
+```php
+use RoundlyConsulting\Git\Dto\Input\{NewReview, NewReviewComment};
+use RoundlyConsulting\Git\Enums\{DiffSide, ReviewEvent};
+
+$review = $github->reviewPullRequest('acme/acme', $pr->number, new NewReview(
+    event: ReviewEvent::Comment,                    // Comment | Approve | RequestChanges
+    body: 'Two findings, one blocking.',
+    comments: [
+        new NewReviewComment('app/Foo.php', 42, 'This nulls out on the retry.'),
+        new NewReviewComment('app/Bar.php', 7, 'Deleted line, so anchor it left.', DiffSide::Left),
+        // A finding about a block: lines 30–36, inclusive.
+        new NewReviewComment('app/Baz.php', 36, 'This whole branch is unreachable.', startLine: 30),
+    ],
+));
+```
+
+Reading back what has been said in review:
+
+```php
+$reviews = $github->pullRequestReviews('acme/acme', $pr->number);
+
+$reviews->reviews;                    // list<PullRequestReview>        — state, body, author, submittedAt
+$reviews->comments;                   // list<PullRequestReviewComment> — body, path, line, side, reviewId
+$reviews->isEmpty();                  // nobody has reviewed it at all
+
+$latest = $reviews->latest();         // the newest SUBMITTED review, or null
+$latest?->state;                      // 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | …
+$reviews->commentsFor($latest);       // just the findings that review published
+```
+
+- **One request, not one per comment.** GitHub publishes a review atomically; posting the
+  comments separately leaves half a review on the pull request when anything fails partway.
+- **`Approve` and `RequestChanges` are refused on your own pull request** (`422`), exactly as
+  `approvePullRequest()` is. An account that authors pull requests can only ever `Comment` on
+  its own work — so put the verdict a reader acts on in the **body**.
+- **A comment anchored off the diff is also a `422`** — the line was never changed. It arrives
+  as the same `RequestException`; you can tell the two apart by whether you sent comments.
+  `startLine` must come *before* `line`; an inverted or collapsed span is rejected locally,
+  since GitHub's own message never says to swap them.
+- **Use `latest()`, not `end($reviews->reviews)`.** GitHub serves reviews oldest-first, but a
+  *pending draft* has no `submittedAt` and still sorts last — so the naive read hands back a
+  verdict nobody published. Both endpoints are walked to the end (`maxPages`, 5 by default),
+  because one page of a long thread is its oldest reviews.
+- **A read keeps what it does not know.** `submittedAt` is null for a pending draft, `line` is
+  null on an outdated comment whose anchor GitHub dropped (`$comment->isOutdated()`), and
+  `createdAt` is null rather than *now* when the payload carries no timestamp.
+
 ### Resilience, caching, and rate limits
 
 Requests retry idempotent 429/5xx responses with backoff and are paced by the client-side rate
@@ -611,8 +662,14 @@ Seeders, all chainable: `seedRepositories` `seedRepository` `seedCreatedReposito
 `seedCommits` `seedCommit` `seedBranches` `seedPullRequests` `seedPullRequest` `seedIssues`
 `seedIssue` `seedTags` `seedReleases` `seedRelease` `seedContents` `seedComparison`
 `seedContributors` `seedLanguages` `seedSearchResults` `seedComment` `seedMergeCommit`
-`seedApprovalState` `seedUser` `seedInstallation` `seedInstallations` `seedWebhooks`
-`seedCreatedWebhook` `seedBatch`.
+`seedApprovalState` `seedSubmittedReview` `seedPullRequestReviews` `seedUser`
+`seedInstallation` `seedInstallations` `seedWebhooks` `seedCreatedWebhook` `seedBatch`.
+
+`reviewPullRequest()` needs no seeding: it answers the state the event actually means
+(`Comment` → `COMMENTED`, never `APPROVED`), so a host asserting on the verdict cannot pass
+against a fake that would fail against GitHub. `seedSubmittedReview()` overrides that when a
+test needs a specific id or url back. `seedPullRequestReviews($reviews, $comments)` seeds the
+two halves separately, because the real call reads them from two endpoints.
 
 ```php
 $fake->github()
