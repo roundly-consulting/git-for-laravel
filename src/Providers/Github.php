@@ -529,6 +529,70 @@ class Github extends BaseProvider
         return $this->mapper()->pullRequest($response->json());
     }
 
+    /**
+     * Close a pull request without merging it.
+     *
+     * GitHub has no "close" endpoint: closing IS a state update, and the same PATCH is
+     * what would reopen it — so the state is passed explicitly rather than implied by the
+     * method name.
+     */
+    public function closePullRequest(string $path, int $number, string $state = 'closed'): PullRequest
+    {
+        $this->guardSupported(Feature::ClosePullRequest);
+        $this->guardAuthenticated();
+
+        $response = $this->send('PATCH', "/repos/{$path}/pulls/{$number}", ['state' => $state]);
+
+        return $this->mapper()->pullRequest($response->json());
+    }
+
+    /**
+     * Approve a pull request, as the authenticated account.
+     *
+     * A review with `event: APPROVE` — GitHub has no separate approve endpoint. **It
+     * refuses an account approving its own pull request** (`422 Can not approve your own
+     * pull request`), which matters for an App: every PR the App opened is its own, so a
+     * caller that authors PRs cannot also approve them. That is GitHub's rule, not this
+     * package's, and it surfaces as the `RequestException` any other refusal does.
+     */
+    public function approvePullRequest(string $path, int $number, ?string $body = null): void
+    {
+        $this->guardSupported(Feature::ApprovePullRequest);
+        $this->guardAuthenticated();
+
+        $this->send('POST', "/repos/{$path}/pulls/{$number}/reviews", array_filter([
+            'event' => 'APPROVE',
+            'body' => $body,
+        ], fn (?string $value): bool => $value !== null));
+    }
+
+    /**
+     * Merge a pull request.
+     *
+     * `$method` is GitHub's `merge_method` — `merge`, `squash` or `rebase`. A repository
+     * that disallows the one asked for answers `405`, and a branch whose protection is
+     * unsatisfied answers `405` too: both are the provider's judgement to report, not
+     * this package's to pre-empt.
+     */
+    public function mergePullRequest(
+        string $path,
+        int $number,
+        string $method = 'merge',
+        ?string $title = null,
+        ?string $message = null,
+    ): bool {
+        $this->guardSupported(Feature::MergePullRequest);
+        $this->guardAuthenticated();
+
+        $response = $this->send('PUT', "/repos/{$path}/pulls/{$number}/merge", array_filter([
+            'merge_method' => $method,
+            'commit_title' => $title,
+            'commit_message' => $message,
+        ], fn (?string $value): bool => $value !== null));
+
+        return (bool) $response->json('merged', false);
+    }
+
     public function comment(string $path, NewComment $data): Comment
     {
         $this->guardSupported(Feature::CreateComment);
@@ -699,6 +763,9 @@ class Github extends BaseProvider
             Feature::CreateFile,
             Feature::UpdateFile,
             Feature::CreatePullRequest,
+            Feature::ClosePullRequest,
+            Feature::ApprovePullRequest,
+            Feature::MergePullRequest,
             Feature::CreateComment,
             Feature::CreateRelease,
             Feature::CreateTag,

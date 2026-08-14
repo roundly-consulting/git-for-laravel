@@ -33,6 +33,9 @@ enum Feature: string
     case CreateFile = 'create_file';
     case UpdateFile = 'update_file';
     case CreatePullRequest = 'create_pull_request';
+    case ClosePullRequest = 'close_pull_request';
+    case ApprovePullRequest = 'approve_pull_request';
+    case MergePullRequest = 'merge_pull_request';
     case CreateComment = 'create_comment';
     case CreateRelease = 'create_release';
     case CreateTag = 'create_tag';
@@ -68,6 +71,9 @@ enum Feature: string
             self::CreateFile => 'Create a new file in a repository.',
             self::UpdateFile => 'Update an existing file in a repository.',
             self::CreatePullRequest => 'Open a new pull/merge request.',
+            self::ClosePullRequest => 'Close a pull/merge request without merging it.',
+            self::ApprovePullRequest => 'Approve a pull/merge request as the authenticated account.',
+            self::MergePullRequest => 'Merge a pull/merge request.',
             self::CreateComment => 'Add a comment to a pull request, merge request, or issue.',
             self::CreateRelease => 'Create a new release.',
             self::CreateTag => 'Create a new tag.',

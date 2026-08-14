@@ -165,6 +165,54 @@ it('creates a pull request', function () {
         ->number->toBe(7);
 });
 
+it('closes a pull request with the state update GitHub actually takes', function () {
+    // There is no "close" endpoint: closing IS a state PATCH, and the same call reopens.
+    Http::fake(['*/repos/o/r/pulls/7' => Http::response([
+        'id' => 1, 'number' => 7, 'title' => 'Add CI', 'state' => 'closed',
+        'head' => ['ref' => 'feature'], 'base' => ['ref' => 'main'], 'created_at' => '2020-01-01T00:00:00Z',
+    ])]);
+
+    expect(github()->closePullRequest('o/r', 7))->number->toBe(7);
+
+    Http::assertSent(fn ($request): bool => $request->method() === 'PATCH' && $request['state'] === 'closed');
+});
+
+it('approves a pull request as a review, because GitHub has no approve endpoint', function () {
+    Http::fake(['*/repos/o/r/pulls/7/reviews' => Http::response(['id' => 5, 'state' => 'APPROVED'])]);
+
+    github()->approvePullRequest('o/r', 7, 'Looks good.');
+
+    Http::assertSent(fn ($request): bool => $request['event'] === 'APPROVE' && $request['body'] === 'Looks good.');
+});
+
+it('omits an absent review body rather than sending null', function () {
+    Http::fake(['*/repos/o/r/pulls/7/reviews' => Http::response(['id' => 5])]);
+
+    github()->approvePullRequest('o/r', 7);
+
+    Http::assertSent(fn ($request): bool => ! array_key_exists('body', $request->data()));
+});
+
+it('merges a pull request and reports whether it merged', function () {
+    Http::fake(['*/repos/o/r/pulls/7/merge' => Http::response(['merged' => true, 'sha' => 'abc'])]);
+
+    expect(github()->mergePullRequest('o/r', 7, 'squash', 'Add CI'))->toBeTrue();
+
+    Http::assertSent(
+        fn ($request): bool => $request->method() === 'PUT'
+            && $request['merge_method'] === 'squash'
+            && $request['commit_title'] === 'Add CI',
+    );
+});
+
+it('reports a merge GitHub declined, rather than assuming it happened', function () {
+    // A repository that disallows the method, or a branch whose protection is not
+    // satisfied, answers with `merged: false` — the caller has to be able to tell.
+    Http::fake(['*/repos/o/r/pulls/7/merge' => Http::response(['merged' => false, 'message' => 'Not mergeable'])]);
+
+    expect(github()->mergePullRequest('o/r', 7))->toBeFalse();
+});
+
 it('comments on an issue', function () {
     Http::fake(['*/repos/o/r/issues/7/comments' => Http::response([
         'id' => 11, 'body' => 'nice', 'user' => ['login' => 'octocat'], 'html_url' => 'u', 'created_at' => '2020-01-01T00:00:00Z',
