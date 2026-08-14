@@ -221,7 +221,7 @@ it('THROWS when GitHub will not merge, because a 200 always means it merged', fu
     Http::fake(['*/repos/o/r/pulls/7/merge' => Http::response(['message' => 'Pull Request is not mergeable'], 405)]);
 
     expect(fn () => github()->mergePullRequest('o/r', 7))
-        ->toThrow(Illuminate\Http\Client\RequestException::class);
+        ->toThrow(RequestException::class);
 });
 
 it('closes only — it cannot be talked into reopening', function () {
