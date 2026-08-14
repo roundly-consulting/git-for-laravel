@@ -180,7 +180,9 @@ it('closes a pull request with the state update GitHub actually takes', function
 it('approves a pull request as a review, because GitHub has no approve endpoint', function () {
     Http::fake(['*/repos/o/r/pulls/7/reviews' => Http::response(['id' => 5, 'state' => 'APPROVED'])]);
 
-    github()->approvePullRequest('o/r', 7, 'Looks good.');
+    // The review's own state, so a caller reports what happened instead of asserting an
+    // outcome it never observed.
+    expect(github()->approvePullRequest('o/r', 7, 'Looks good.'))->toBe('APPROVED');
 
     Http::assertSent(fn ($request): bool => $request['event'] === 'APPROVE' && $request['body'] === 'Looks good.');
 });
@@ -193,24 +195,44 @@ it('omits an absent review body rather than sending null', function () {
     Http::assertSent(fn ($request): bool => ! array_key_exists('body', $request->data()));
 });
 
-it('merges a pull request and reports whether it merged', function () {
+it('merges a pull request and returns the merge commit', function () {
     Http::fake(['*/repos/o/r/pulls/7/merge' => Http::response(['merged' => true, 'sha' => 'abc'])]);
 
-    expect(github()->mergePullRequest('o/r', 7, 'squash', 'Add CI'))->toBeTrue();
+    expect(github()->mergePullRequest('o/r', 7, 'squash'))->toBe('abc');
 
     Http::assertSent(
-        fn ($request): bool => $request->method() === 'PUT'
-            && $request['merge_method'] === 'squash'
-            && $request['commit_title'] === 'Add CI',
+        fn ($request): bool => $request->method() === 'PUT' && $request['merge_method'] === 'squash',
     );
 });
 
-it('reports a merge GitHub declined, rather than assuming it happened', function () {
-    // A repository that disallows the method, or a branch whose protection is not
-    // satisfied, answers with `merged: false` — the caller has to be able to tell.
-    Http::fake(['*/repos/o/r/pulls/7/merge' => Http::response(['merged' => false, 'message' => 'Not mergeable'])]);
+it('makes the merge conditional on the head the caller decided about', function () {
+    // Without `sha`, a push landing between the review and the merge is merged unseen.
+    Http::fake(['*/repos/o/r/pulls/7/merge' => Http::response(['merged' => true, 'sha' => 'abc'])]);
 
-    expect(github()->mergePullRequest('o/r', 7))->toBeFalse();
+    github()->mergePullRequest('o/r', 7, 'merge', 'head-sha');
+
+    Http::assertSent(fn ($request): bool => $request['sha'] === 'head-sha');
+});
+
+it('THROWS when GitHub will not merge, because a 200 always means it merged', function () {
+    // `merged: false` is a shape GitHub does not send: an unmergeable pull request is
+    // `405` and a conflict (or a moved head) is `409`. A caller that read a boolean would
+    // be reading a response that never arrives.
+    Http::fake(['*/repos/o/r/pulls/7/merge' => Http::response(['message' => 'Pull Request is not mergeable'], 405)]);
+
+    expect(fn () => github()->mergePullRequest('o/r', 7))
+        ->toThrow(Illuminate\Http\Client\RequestException::class);
+});
+
+it('closes only — it cannot be talked into reopening', function () {
+    Http::fake(['*/repos/o/r/pulls/7' => Http::response([
+        'id' => 1, 'number' => 7, 'title' => 'Add CI', 'state' => 'closed',
+        'head' => ['ref' => 'feature'], 'base' => ['ref' => 'main'], 'created_at' => '2020-01-01T00:00:00Z',
+    ])]);
+
+    github()->closePullRequest('o/r', 7);
+
+    Http::assertSent(fn ($request): bool => $request['state'] === 'closed');
 });
 
 it('comments on an issue', function () {

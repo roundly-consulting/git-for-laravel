@@ -532,16 +532,16 @@ class Github extends BaseProvider
     /**
      * Close a pull request without merging it.
      *
-     * GitHub has no "close" endpoint: closing IS a state update, and the same PATCH is
-     * what would reopen it — so the state is passed explicitly rather than implied by the
-     * method name.
+     * GitHub has no "close" endpoint — closing is a state update — but this method only
+     * ever closes. Taking the state as a parameter would make `closePullRequest(…, 'open')`
+     * reopen one, which is a method name that lies about what it does.
      */
-    public function closePullRequest(string $path, int $number, string $state = 'closed'): PullRequest
+    public function closePullRequest(string $path, int $number): PullRequest
     {
         $this->guardSupported(Feature::ClosePullRequest);
         $this->guardAuthenticated();
 
-        $response = $this->send('PATCH', "/repos/{$path}/pulls/{$number}", ['state' => $state]);
+        $response = $this->send('PATCH', "/repos/{$path}/pulls/{$number}", ['state' => 'closed']);
 
         return $this->mapper()->pullRequest($response->json());
     }
@@ -555,42 +555,56 @@ class Github extends BaseProvider
      * caller that authors PRs cannot also approve them. That is GitHub's rule, not this
      * package's, and it surfaces as the `RequestException` any other refusal does.
      */
-    public function approvePullRequest(string $path, int $number, ?string $body = null): void
+    public function approvePullRequest(string $path, int $number, ?string $body = null): string
     {
         $this->guardSupported(Feature::ApprovePullRequest);
         $this->guardAuthenticated();
 
-        $this->send('POST', "/repos/{$path}/pulls/{$number}/reviews", array_filter([
+        $response = $this->send('POST', "/repos/{$path}/pulls/{$number}/reviews", array_filter([
             'event' => 'APPROVE',
             'body' => $body,
         ], fn (?string $value): bool => $value !== null));
+
+        // The review's own state, so a caller can report what happened rather than
+        // asserting an outcome it never observed.
+        return (string) $response->json('state', 'APPROVED');
     }
 
     /**
-     * Merge a pull request.
+     * Merge a pull request. Returns the merge commit sha.
      *
-     * `$method` is GitHub's `merge_method` — `merge`, `squash` or `rebase`. A repository
-     * that disallows the one asked for answers `405`, and a branch whose protection is
-     * unsatisfied answers `405` too: both are the provider's judgement to report, not
-     * this package's to pre-empt.
+     * `$method` is GitHub's `merge_method` — `merge`, `squash` or `rebase`.
+     *
+     * **A merge GitHub will not perform THROWS**, like every other refusal in this
+     * package: `405` for an unmergeable pull request (unsatisfied branch protection, a
+     * required check, a merge method the repository disallows) and `409` for a conflict or
+     * for `$sha` no longer matching. A `200` from this endpoint always means it merged, so
+     * a `merged: false` return would be a shape GitHub never sends — the caller must
+     * inspect the exception's status to tell "the provider said no" from "the call failed".
+     *
+     * `$sha` is the head commit the caller decided about. Passing it makes the merge
+     * conditional: a push landing between the review and the merge answers `409` instead
+     * of merging code nobody looked at.
      */
     public function mergePullRequest(
         string $path,
         int $number,
         string $method = 'merge',
+        ?string $sha = null,
         ?string $title = null,
         ?string $message = null,
-    ): bool {
+    ): string {
         $this->guardSupported(Feature::MergePullRequest);
         $this->guardAuthenticated();
 
         $response = $this->send('PUT', "/repos/{$path}/pulls/{$number}/merge", array_filter([
             'merge_method' => $method,
+            'sha' => $sha,
             'commit_title' => $title,
             'commit_message' => $message,
         ], fn (?string $value): bool => $value !== null));
 
-        return (bool) $response->json('merged', false);
+        return (string) $response->json('sha', '');
     }
 
     public function comment(string $path, NewComment $data): Comment
