@@ -5,11 +5,13 @@ declare(strict_types=1);
 use Illuminate\Http\Client\Request;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Git\Auth\TokenManager;
 use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
 use RoundlyConsulting\Git\Dto\Input\InstallationTokenScope;
+use RoundlyConsulting\Git\Events\OauthTokenRefreshed;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 
 function appCredentials(): GithubAppToken
@@ -305,4 +307,66 @@ it('keeps the metadata-only token in its own cache entry', function () {
         // A null scope is still "everything the installation granted" and must not be
         // served the read-only one, nor the other way round.
         ->and($manager->installationToken(appCredentials()))->toBe('wide');
+});
+
+it('tells the host application when the refresh token rotated', function () {
+    // The cache is NOT a durable home for a rotated refresh token: its entry expires with
+    // the ACCESS token, and after that the only copy left is the one the host persisted —
+    // which the provider invalidated at rotation. Without this event the connection breaks
+    // an hour later with nothing having reported the change.
+    Event::fake();
+
+    Http::fake(['https://token.test' => Http::response([
+        'access_token' => 'rotated-access',
+        'refresh_token' => 'rotated-refresh',
+        'expires_in' => 3600,
+    ])]);
+
+    $cred = OauthToken::for('expired', 'old-refresh', 'client', 'secret', 'https://token.test', Carbon::now()->subMinute());
+
+    app(TokenManager::class)->oauthToken($cred);
+
+    Event::assertDispatched(OauthTokenRefreshed::class, function (OauthTokenRefreshed $event): bool {
+        return $event->rotated()
+            && $event->refreshToken === 'rotated-refresh'
+            && $event->accessToken === 'rotated-access'
+            && $event->expiresAt->isFuture();
+    });
+});
+
+it('reports a refresh that did NOT rotate as unrotated', function () {
+    Event::fake();
+
+    Http::fake(['https://token.test' => Http::response(['access_token' => 'refreshed', 'expires_in' => 3600])]);
+
+    $cred = OauthToken::for('expired', 'keep-me', 'client', 'secret', 'https://token.test', Carbon::now()->subMinute());
+
+    app(TokenManager::class)->oauthToken($cred);
+
+    Event::assertDispatched(OauthTokenRefreshed::class, fn (OauthTokenRefreshed $event): bool => ! $event->rotated()
+        && $event->refreshToken === 'keep-me');
+});
+
+it('presents the STORED refresh token, not the one the caller is still holding', function () {
+    // After a rotation the caller's own credential carries a refresh token the provider
+    // already invalidated — sending it is a hard failure that reads like a revoked grant.
+    // This is the window where the package can still fix that itself: the first response
+    // rotates AND arrives already expired, so the entry outlives the token inside it and
+    // the next call re-refreshes with the rotated token sitting in that entry.
+    Http::fake(['https://token.test' => Http::sequence()
+        ->push(['access_token' => 'first', 'refresh_token' => 'rotated-refresh', 'expires_in' => 0])
+        ->push(['access_token' => 'second', 'expires_in' => 3600]),
+    ]);
+
+    $cred = OauthToken::for('expired', 'old-refresh', 'client', 'secret', 'https://token.test', Carbon::now()->subMinute());
+
+    $manager = app(TokenManager::class);
+
+    expect($manager->oauthToken($cred))->toBe('first')
+        // The caller's credential still names `old-refresh`; the request must not.
+        ->and($manager->oauthToken($cred))->toBe('second');
+
+    $sent = collect(Http::recorded())->map(fn (array $pair): mixed => $pair[0]->data()['refresh_token'] ?? null);
+
+    expect($sent->all())->toBe(['old-refresh', 'rotated-refresh']);
 });

@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Crypto\Hash\Digest;
 use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
+use RoundlyConsulting\Git\Events\OauthTokenRefreshed;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use SensitiveParameter;
 
@@ -100,7 +101,7 @@ final class TokenManager
     {
         $key = $this->oauthCacheKey($cred->refreshToken);
 
-        /** @var array{token: string, expires_at: int, refresh_token: string}|null $cached */
+        /** @var array{token: string, expires_at: int, refresh_token?: string}|null $cached */
         $cached = $this->cache()->get($key);
 
         if (is_array($cached) && $cached['expires_at'] > time()) {
@@ -113,16 +114,29 @@ final class TokenManager
             return $cred->accessTokenValue;
         }
 
-        return $this->refreshOauth($cred, $key);
+        // A rotation the caller has not caught up with yet. The entry under THIS key was
+        // written by a refresh that rotated, so the refresh token the credential still
+        // carries is the one the provider invalidated; the live one is in the entry.
+        //
+        // Reachable whenever an entry outlives the token inside it — an access token that
+        // arrives already expired (or inside the safety margin) is stored with a floor TTL
+        // and re-refreshed on the next call. It is a guard, NOT the fix for rotation:
+        // the entry dies with the access token, so once it is gone the only copy left is
+        // the host's. {@see OauthTokenRefreshed} is what keeps that copy current.
+        $refreshToken = is_array($cached) && is_string($cached['refresh_token'] ?? null) && $cached['refresh_token'] !== ''
+            ? $cached['refresh_token']
+            : $cred->refreshToken;
+
+        return $this->refreshOauth($cred, $key, $refreshToken);
     }
 
-    private function refreshOauth(OauthToken $cred, string $key): string
+    private function refreshOauth(OauthToken $cred, string $key, #[SensitiveParameter] string $presentedRefreshToken): string
     {
         $response = Http::asForm()
             ->acceptJson()
             ->post($cred->tokenUrl, [
                 'grant_type' => 'refresh_token',
-                'refresh_token' => $cred->refreshToken,
+                'refresh_token' => $presentedRefreshToken,
                 'client_id' => $cred->clientId,
                 'client_secret' => $cred->clientSecret,
             ]);
@@ -138,14 +152,25 @@ final class TokenManager
         }
 
         $expiresTimestamp = is_numeric($expiresIn) ? time() + (int) $expiresIn : time() + 3600;
-        $refreshToken = is_string($rotated) && $rotated !== '' ? $rotated : $cred->refreshToken;
+        $refreshToken = is_string($rotated) && $rotated !== '' ? $rotated : $presentedRefreshToken;
 
         $this->store($key, $token, $expiresTimestamp, $refreshToken);
 
         // A rotated refresh token re-keys the cache so the next lookup hits.
-        if ($refreshToken !== $cred->refreshToken) {
+        if ($refreshToken !== $presentedRefreshToken) {
             $this->store($this->oauthCacheKey($refreshToken), $token, $expiresTimestamp, $refreshToken);
         }
+
+        // The cache is not durable enough to be the only home for a rotated refresh
+        // token: its entry expires with the ACCESS token, and after that the host's
+        // stored value is the one the provider already invalidated. This is the only
+        // notification a host gets that the value it persisted has to change.
+        OauthTokenRefreshed::dispatch(
+            $cred,
+            $token,
+            $refreshToken,
+            Carbon::createFromTimestamp($expiresTimestamp),
+        );
 
         return $token;
     }
