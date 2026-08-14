@@ -35,9 +35,7 @@ it('returns seeded branches, commit and clone url', function () {
     $commit = new Commit(ProviderName::Github, 'sha', 'msg', new Author('n', 'e', null), null, Carbon::now());
 
     $provider = $fake->github();
-    (fn () => $this->seeded['branches'] = ['main'])->call($provider);
-    $provider->seedCommits([$commit]);
-    (fn () => $this->seeded['commit'] = $commit)->call($provider);
+    $provider->seedBranches(['main'])->seedCommits([$commit])->seedCommit($commit);
 
     expect($provider->branches('o/r')->items)->toBe(['main'])
         ->and($provider->commit('o/r', 'sha')->sha)->toBe('sha')
