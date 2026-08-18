@@ -322,6 +322,41 @@ $webhook = $github->createWebhook('acme/acme', new NewWebhook('https://example.c
 $github->deleteWebhook('acme/acme', $webhook->id);
 ```
 
+#### Creating a repository
+
+`createRepository()` picks its route from the input: a `template` generates from a template
+repository (`POST /repos/{template}/generate`), an `owner` creates in that organization
+(`POST /orgs/{owner}/repos`), and neither creates under the authenticated account
+(`POST /user/repos`).
+
+```php
+$repo = $github->createRepository(new NewRepository(
+    name: 'widget-for-laravel',
+    private: true,
+    owner: 'acme',
+    template: 'acme/package-template',
+));
+```
+
+Only the template route produces a repository that already has a **commit** — the other two
+create an empty one unless you pass `autoInit: true`, and cloning an empty repository with
+`--branch` fails. `defaultBranch` is honoured by renaming the initial branch after creation,
+because GitHub accepts no `default_branch` at creation time; it therefore requires `autoInit`
+or a `template`.
+
+Creating in an organization needs the App to hold organization `administration: write` — an
+org owner approves it on the existing installation. Mint the token for it just-in-time:
+
+```php
+use RoundlyConsulting\Git\Dto\Input\InstallationTokenScope;
+
+$credentials = GithubAppToken::for($appId, $installationId, $privateKey)
+    ->forScope(InstallationTokenScope::administrationOnly());
+```
+
+GitLab maps `owner` to a numeric `namespace_id` and Bitbucket to the workspace; template
+generation is GitHub-only and answers `FeatureNotSupportedException` elsewhere.
+
 #### Closing, approving, and merging a pull request
 
 ```php
@@ -645,7 +680,8 @@ $fake->github()->seedRepositories([$repositoryDto]);
 // run code that calls Registry::github()->repositories() ...
 
 $fake->assertSent(ProviderName::Github, 'repositories');
-$fake->assertRepositoryCreated('acme/new-repo');
+$fake->assertRepositoryCreated('new-repo');
+$fake->assertRepositoryCreated('new-repo', owner: 'acme', template: 'acme/package-template');
 ```
 
 The double answers the **whole** `Provider` contract — every read, write, installation lookup,
