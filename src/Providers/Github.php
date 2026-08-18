@@ -19,6 +19,7 @@ use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
 use RoundlyConsulting\Git\Dto\FileContent;
+use RoundlyConsulting\Git\Dto\Input\InstallationTokenScope;
 use RoundlyConsulting\Git\Dto\Input\NewBranch;
 use RoundlyConsulting\Git\Dto\Input\NewComment;
 use RoundlyConsulting\Git\Dto\Input\NewFile;
@@ -462,18 +463,136 @@ class Github extends BaseProvider
         );
     }
 
+    /**
+     * Create a repository, by one of three routes chosen from the input.
+     *
+     * The route matters beyond where the repository lands. `/user/repos` and
+     * `/orgs/{org}/repos` create an EMPTY repository unless `auto_init` is set — no commits
+     * and therefore no default branch — so a caller that immediately runs
+     * `git clone --depth 1 --branch <base>` fails on it. `/generate` always produces a
+     * commit, which is why generating from a template is the route worth having.
+     */
     public function createRepository(NewRepository $data): Repository
     {
         $this->guardSupported(Feature::CreateRepository);
+
+        if ($data->template !== null) {
+            // Guarded as its own feature so a provider without an equivalent fails as
+            // "unsupported", not as a 404 from a URL that means something else there.
+            $this->guardSupported(Feature::GenerateFromTemplate);
+        }
+
         $this->guardAuthenticated();
 
-        $response = $this->send('POST', '/user/repos', [
-            'name' => $data->name,
-            'private' => $data->private,
-            'description' => $data->description,
+        return $this->asPermissionFailure(
+            'create a repository'.($data->owner !== null ? " in [{$data->owner}]" : ''),
+            fn (): Repository => $this->sendRepositoryCreation($data),
+        );
+    }
+
+    /**
+     * Run a creation call, translating "the app was never granted this" into the
+     * package's own credential failure.
+     *
+     * Without this the caller receives Illuminate's `RequestException`, whose message is
+     * GitHub's response body verbatim — "Resource not accessible by integration", which
+     * names neither the permission nor the account, and which a consumer would end up
+     * pattern-matching on or logging onward.
+     *
+     * @template T
+     *
+     * @param  callable(): T  $call
+     * @return T
+     *
+     * @throws InvalidCredentialsException when the app lacks the permission
+     */
+    private function asPermissionFailure(string $operation, callable $call): mixed
+    {
+        try {
+            return $call();
+        } catch (RequestException $exception) {
+            $response = $exception->response;
+
+            // 403 is GitHub's answer for a secondary rate limit as well as for a missing
+            // permission. A throttled minute must stay retryable — a consumer that reads
+            // InvalidCredentialsException tears the connection down — so anything carrying
+            // rate-limit signal falls through as the HTTP failure it already was.
+            $rateLimited = $response->header('Retry-After') !== ''
+                || $response->header('X-RateLimit-Remaining') === '0';
+
+            if ($response->status() !== 403 || $rateLimited) {
+                throw $exception;
+            }
+
+            throw InvalidCredentialsException::missingPermission(
+                provider: $this->name(),
+                permission: 'administration: write',
+                operation: $operation,
+            );
+        }
+    }
+
+    private function sendRepositoryCreation(NewRepository $data): Repository
+    {
+        $response = $data->template !== null
+            ? $this->send('POST', "/repos/{$data->template}/generate", [
+                // Omitted rather than sent as null: GitHub reads an absent `owner` as
+                // "the authenticated account", but an explicit null is a 422.
+                ...($data->owner !== null ? ['owner' => $data->owner] : []),
+                'name' => $data->name,
+                'private' => $data->private,
+                'description' => $data->description,
+                // The template's other branches are its history, not this repository's.
+                'include_all_branches' => false,
+            ])
+            : $this->send('POST', $data->owner !== null ? "/orgs/{$data->owner}/repos" : '/user/repos', [
+                'name' => $data->name,
+                'private' => $data->private,
+                'description' => $data->description,
+                'auto_init' => $data->autoInit,
+            ]);
+
+        /** @var array<string, mixed> $created */
+        $created = $response->json();
+        $repository = $this->mapper()->repository($created);
+
+        return $this->withDefaultBranch($repository, $created, $data);
+    }
+
+    /**
+     * Give the created repository the default branch the caller asked for.
+     *
+     * GitHub accepts `default_branch` on NONE of the three creation routes — it is an
+     * update-only field — and silently drops unknown body members, so sending it would
+     * leave the caller believing it had asked for `develop` and cloning `main`. Renaming
+     * the initial branch is the only route GitHub offers, and it is the one that makes the
+     * branch exist as well as be default. It needs `administration: write`, which is
+     * exactly what {@see InstallationTokenScope::administrationOnly()}
+     * mints.
+     *
+     * @param  array<string, mixed>  $created  the creation response body
+     */
+    private function withDefaultBranch(Repository $repository, array $created, NewRepository $data): Repository
+    {
+        // Nothing to do when it was not asked for, when the repository has no branch to
+        // rename (an empty repository reports none), or when it is already right —
+        // renaming a branch to its own name is a 422.
+        if ($data->defaultBranch === null
+            || $repository->defaultBranch === ''
+            || $repository->defaultBranch === $data->defaultBranch) {
+            return $repository;
+        }
+
+        $this->send('POST', "/repos/{$repository->path}/branches/{$repository->defaultBranch}/rename", [
+            'new_name' => $data->defaultBranch,
         ]);
 
-        return $this->mapper()->repository($response->json());
+        // `send()` has already thrown on anything but success, so the rename happened and
+        // the creation body is now stale. Re-mapping the corrected body keeps the returned
+        // DTO describing the repository that exists, without a second round trip to re-read it.
+        $created['default_branch'] = $data->defaultBranch;
+
+        return $this->mapper()->repository($created);
     }
 
     public function createBranch(string $path, NewBranch $data): string
@@ -867,6 +986,7 @@ class Github extends BaseProvider
             Feature::Languages,
             Feature::SearchRepositories,
             Feature::CreateRepository,
+            Feature::GenerateFromTemplate,
             Feature::CreateBranch,
             Feature::CreateFile,
             Feature::UpdateFile,

@@ -92,14 +92,28 @@ final class RegistryFake extends Registry
         );
     }
 
-    public function assertRepositoryCreated(string $name): void
+    /**
+     * A repository was created — optionally under a given owner, optionally from a given
+     * template.
+     *
+     * `owner` and `template` are opt-in so an existing one-argument call keeps asserting
+     * exactly what it did. Passing them narrows the assertion: "created" and "created in
+     * the right organization, from the right template" are different claims, and only the
+     * second is what a provisioning caller means.
+     */
+    public function assertRepositoryCreated(string $name, ?string $owner = null, ?string $template = null): void
     {
         $created = collect($this->calls)
             ->flatten(1)
             ->contains(fn (RecordedCall $call): bool => $call->method === 'createRepository'
-                && ($call->arguments[0]->name ?? null) === $name);
+                && ($call->arguments[0]->name ?? null) === $name
+                && ($owner === null || ($call->arguments[0]->owner ?? null) === $owner)
+                && ($template === null || ($call->arguments[0]->template ?? null) === $template));
 
-        Assert::assertTrue($created, "Expected repository [{$name}] to be created, but it was not.");
+        $detail = $owner !== null ? " under [{$owner}]" : '';
+        $detail .= $template !== null ? " from template [{$template}]" : '';
+
+        Assert::assertTrue($created, "Expected repository [{$name}]{$detail} to be created, but it was not.");
     }
 
     private function wasSent(ProviderName $provider, string $method): bool

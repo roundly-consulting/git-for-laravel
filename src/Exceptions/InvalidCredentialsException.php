@@ -56,6 +56,30 @@ final class InvalidCredentialsException extends Exception
     }
 
     /**
+     * A permission the app was never granted, told as this package's own failure.
+     *
+     * GitHub answers "Resource not accessible by integration" for it — a 403 whose body
+     * names neither the permission nor the account, and which would otherwise reach the
+     * caller verbatim inside a `RequestException` message. Creating a repository in an
+     * organization is the case that provoked this: `administration: write` is approved by
+     * an ORG OWNER on the existing installation, on a different axis from the repository
+     * permissions the app normally uses, so the app can be perfectly healthy and still
+     * unable to make this one call. That is a human action, which is what this exception
+     * type means everywhere else in the package.
+     *
+     * Only raised once a rate limit has been ruled out: GitHub answers 403 for a secondary
+     * rate limit too, and reporting a throttled minute as a broken connection would make a
+     * consumer tear down a credential that was fine.
+     */
+    public static function missingPermission(string $provider, string $permission, string $operation): self
+    {
+        return new self(
+            "The [{$provider}] app is not permitted to {$operation}. Grant it [{$permission}] ".
+            'on the installation — an organization owner approves it — and try again.'
+        );
+    }
+
+    /**
      * The credential type an endpoint requires. GitHub authenticates `/app/**` as the app
      * itself and everything else as an installation, and the two are not interchangeable:
      * the wrong one answers with GitHub's own opaque 403.

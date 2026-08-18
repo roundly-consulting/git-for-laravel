@@ -6,6 +6,7 @@ use Illuminate\Support\Carbon;
 use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
+use RoundlyConsulting\Git\Dto\Input\NewRepository;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Owner;
@@ -188,3 +189,50 @@ function fakeInstallation(string $login = 'acme-inc'): Installation
         permissions: ['contents' => 'write'],
     );
 }
+
+it('round-trips every repository-provisioning field', function () {
+    $fake = Registry::fake();
+
+    $repo = $fake->github()->createRepository(new NewRepository(
+        name: 'widget',
+        private: true,
+        description: 'd',
+        owner: 'acme',
+        template: 'roundly-consulting/package-template',
+        autoInit: true,
+        defaultBranch: 'develop',
+    ));
+
+    // The fake is where a consumer's whole test suite for this feature runs, so a field it
+    // drops is a field that consumer can never assert on.
+    expect($repo)->path->toBe('acme/widget')->name->toBe('widget')->defaultBranch->toBe('develop')
+        ->and($repo->owner->name)->toBe('acme');
+
+    $fake->assertRepositoryCreated('widget', owner: 'acme', template: 'roundly-consulting/package-template');
+});
+
+it('reports no default branch on a fake repository with no initial commit', function () {
+    $repo = Registry::fake()->github()->createRepository(new NewRepository('widget'));
+
+    expect($repo->defaultBranch)->toBe('')->and($repo->path)->toBe('widget');
+});
+
+it('lets a seeded repository win over the provisioning input', function () {
+    $seeded = new Repository(
+        provider: ProviderName::Github,
+        id: 'seeded',
+        path: 'other/thing',
+        name: 'thing',
+        description: null,
+        defaultBranch: 'trunk',
+        owner: new Owner(id: 'o', name: 'other', avatar: null),
+        createdAt: Carbon::now(),
+        lastActivityAt: Carbon::now(),
+    );
+
+    $repo = Registry::fake()->github()
+        ->seedCreatedRepository($seeded)
+        ->createRepository(new NewRepository(name: 'widget', owner: 'acme', autoInit: true));
+
+    expect($repo)->toBe($seeded);
+});

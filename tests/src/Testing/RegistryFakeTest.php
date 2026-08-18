@@ -73,3 +73,27 @@ it('fails assertSent when the method was never called', function () {
     expect(fn () => $fake->assertSent(ProviderName::Bitbucket, 'repositories'))
         ->toThrow(AssertionFailedError::class);
 });
+
+it('narrows the repository-created assertion to owner and template', function () {
+    $fake = Registry::fake();
+
+    $fake->github()->createRepository(new NewRepository(
+        name: 'widget',
+        owner: 'acme',
+        template: 'roundly-consulting/package-template',
+    ));
+
+    $fake->assertRepositoryCreated('widget');
+    $fake->assertRepositoryCreated('widget', owner: 'acme');
+    $fake->assertRepositoryCreated('widget', owner: 'acme', template: 'roundly-consulting/package-template');
+});
+
+it('fails the repository-created assertion when it landed under another owner', function () {
+    $fake = Registry::fake();
+
+    $fake->github()->createRepository(new NewRepository(name: 'widget', owner: 'acme'));
+
+    // "Created" and "created in the right organization" are different claims — the whole
+    // reason the assertion takes an owner.
+    $fake->assertRepositoryCreated('widget', owner: 'other-org');
+})->throws(AssertionFailedError::class);

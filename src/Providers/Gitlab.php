@@ -356,15 +356,45 @@ class Gitlab extends BaseProvider
         );
     }
 
+    /**
+     * Create a project.
+     *
+     * `owner` maps to `namespace_id`, which GitLab defines as an INTEGER group or subgroup
+     * id — there is no path-string form. A non-numeric owner is therefore refused rather
+     * than dropped: a dropped namespace creates the project in the caller's personal
+     * namespace, which looks like success and is the wrong place.
+     *
+     * @throws \InvalidArgumentException when the owner is not a numeric namespace id
+     */
     public function createRepository(NewRepository $data): Repository
     {
         $this->guardSupported(Feature::CreateRepository);
+
+        if ($data->template !== null) {
+            // GitLab's project templates are a different concept from generating a
+            // repository out of another repository, so this is genuinely unsupported
+            // rather than merely spelled differently.
+            $this->guardSupported(Feature::GenerateFromTemplate);
+        }
+
         $this->guardAuthenticated();
+
+        if ($data->owner !== null && ! ctype_digit($data->owner)) {
+            throw new \InvalidArgumentException(
+                "GitLab needs a numeric namespace id for the owner, got [{$data->owner}]."
+            );
+        }
 
         $response = $this->send('POST', '/api/v4/projects', [
             'name' => $data->name,
             'visibility' => $data->private ? 'private' : 'public',
             'description' => $data->description,
+            ...($data->owner !== null ? ['namespace_id' => (int) $data->owner] : []),
+            'initialize_with_readme' => $data->autoInit,
+            // GitLab takes this at creation time (unlike GitHub) but documents it as
+            // requiring `initialize_with_readme` — the constraint `NewRepository` already
+            // enforces, so anything that arrives here is valid.
+            ...($data->defaultBranch !== null ? ['default_branch' => $data->defaultBranch] : []),
         ]);
 
         return $this->mapper()->repository($response->json());

@@ -155,12 +155,37 @@ class Bitbucket extends BaseProvider
         return "/2.0/repositories/{$path}/pullrequests/{$number}";
     }
 
+    /**
+     * Create a repository in a workspace.
+     *
+     * `owner` is the workspace. Bitbucket's route is `/2.0/repositories/{workspace}/{slug}`
+     * and always has been; the ownerless form here posts a bare name at it, which is what
+     * this endpoint looked like before workspaces and no longer addresses anything. It is
+     * kept only so an existing caller's behaviour does not change silently — pass an owner.
+     *
+     * Bitbucket has no initial-commit option and no template generation, so both are
+     * refused rather than dropped.
+     */
     public function createRepository(NewRepository $data): Repository
     {
         $this->guardSupported(Feature::CreateRepository);
+
+        if ($data->template !== null) {
+            $this->guardSupported(Feature::GenerateFromTemplate);
+        }
+
+        // No `auto_init` equivalent exists, so honouring these would mean pretending. A
+        // caller that asked for an initial commit and silently got an empty repository
+        // discovers it at `git clone`, far from here.
+        if ($data->autoInit || $data->defaultBranch !== null) {
+            $this->featureNotSupported();
+        }
+
         $this->guardAuthenticated();
 
-        $response = $this->send('POST', "/2.0/repositories/{$data->name}", [
+        $path = $data->owner !== null ? "{$data->owner}/{$data->name}" : $data->name;
+
+        $response = $this->send('POST', "/2.0/repositories/{$path}", [
             'scm' => 'git',
             'is_private' => $data->private,
             'description' => $data->description,

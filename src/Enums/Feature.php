@@ -29,6 +29,7 @@ enum Feature: string
     case Languages = 'languages';
     case SearchRepositories = 'search_repositories';
     case CreateRepository = 'create_repository';
+    case GenerateFromTemplate = 'generate_from_template';
     case CreateBranch = 'create_branch';
     case CreateFile = 'create_file';
     case UpdateFile = 'update_file';
@@ -69,6 +70,7 @@ enum Feature: string
             self::Languages => 'List the languages used in a repository.',
             self::SearchRepositories => 'Search repositories by query.',
             self::CreateRepository => 'Create a new repository.',
+            self::GenerateFromTemplate => 'Create a new repository from a template repository, with its initial commit already in place.',
             self::CreateBranch => 'Create a branch from a base ref.',
             self::CreateFile => 'Create a new file in a repository.',
             self::UpdateFile => 'Update an existing file in a repository.',

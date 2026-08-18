@@ -586,15 +586,23 @@ final class ProviderFake implements Provider
     {
         $this->record('createRepository', [$data]);
 
+        // The seeded override still wins outright — a consumer that pinned the answer
+        // gets it whatever the input said.
         /** @var Repository */
         return $this->seeded['createRepository'] ?? new Repository(
             provider: $this->name,
             id: 'fake',
-            path: $data->name,
+            path: $data->owner !== null ? "{$data->owner}/{$data->name}" : $data->name,
             name: $data->name,
             description: $data->description,
-            defaultBranch: 'main',
-            owner: new Owner(id: 'fake', name: 'fake', avatar: null),
+            // Mirrors the real providers: a repository generated from a template or
+            // initialized has a branch, and an EMPTY one has none. Reported as '' rather
+            // than 'main' — the same stand-in `BitbucketMapper` uses for a repository
+            // with no main branch — so a consumer that clones the fake's answer hits the
+            // same wall it would in production instead of a branch that does not exist.
+            defaultBranch: $data->defaultBranch
+                ?? (($data->autoInit || $data->template !== null) ? 'main' : ''),
+            owner: new Owner(id: 'fake', name: $data->owner ?? 'fake', avatar: null),
             createdAt: Carbon::now(),
             lastActivityAt: Carbon::now(),
         );

@@ -94,6 +94,27 @@ final readonly class InstallationTokenScope extends Dto
     }
 
     /**
+     * A scope for creating repositories: every repository, but `administration: write`
+     * and nothing else.
+     *
+     * Creating a repository is the SECOND legitimate operation that cannot name a
+     * repository — it does not exist yet, so there is nothing to select. The same answer
+     * as {@see metadataOnly()} applies: as wide as it must be, as weak as it can be. Wide
+     * on the repository axis is forced, so the permission axis is narrowed to one entry
+     * rather than inheriting the app's configured set (`contents: write` included).
+     *
+     * A token minted from this can create a repository ANYWHERE in the installation —
+     * including in an organization the caller was not thinking about — and can administer
+     * every repository already in it. Mint it just-in-time for the one call, let it fall
+     * out of scope, and never store it, log it, or forward it to anything the operation
+     * did not need.
+     */
+    public static function administrationOnly(): self
+    {
+        return new self(permissions: ['administration' => 'write'], installationWide: true);
+    }
+
+    /**
      * No repository selector AND no deliberate choice to go wide — i.e. a caller whose
      * repository list came back empty. A token minted from this would reach the whole
      * installation with every granted permission, so `TokenManager` refuses it.
