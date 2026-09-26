@@ -9,6 +9,7 @@ use GuzzleHttp\Psr7\Response as GuzzleResponse;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -61,6 +62,7 @@ use RoundlyConsulting\Git\Interfaces\Provider;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
 use RoundlyConsulting\Git\Webhooks\Webhooks;
+use Throwable;
 
 abstract class BaseProvider implements Provider
 {
@@ -589,7 +591,7 @@ abstract class BaseProvider implements Provider
     /**
      * Shared HTTP client builder for every provider request.
      */
-    protected function client(): PendingRequest
+    protected function client(bool $read = true): PendingRequest
     {
         /** @var array<string, mixed> $http */
         $http = config("git.providers.{$this->key()}", []);
@@ -598,7 +600,7 @@ abstract class BaseProvider implements Provider
 
         $request = Http::withOptions($this->options($http))
             ->timeout(is_int($http['timeout'] ?? null) ? $http['timeout'] : 10)
-            ->retry($times, $backoff, throw: false)
+            ->retry($read ? $times : 1, $backoff, $this->retryable(...), throw: false)
             ->baseUrl(is_string($http['url'] ?? null) ? $http['url'] : $this->providerName()->apiBaseUrl())
             ->acceptJson()
             ->asJson();
@@ -726,7 +728,7 @@ abstract class BaseProvider implements Provider
 
         $request = $request->withOptions($this->options($http))
             ->timeout(is_int($http['timeout'] ?? null) ? $http['timeout'] : 10)
-            ->retry($times, $backoff, throw: false)
+            ->retry($times, $backoff, $this->retryable(...), throw: false)
             ->baseUrl(is_string($http['url'] ?? null) ? $http['url'] : $this->providerName()->apiBaseUrl())
             ->acceptJson()
             ->asJson();
@@ -752,6 +754,30 @@ abstract class BaseProvider implements Provider
             : $this->tokenValue();
 
         return $token === '' ? $request : $request->withToken($token);
+    }
+
+    /**
+     * Whether a failed attempt is worth another one — only ever for a READ.
+     *
+     * The retry budget is for the failures that can change on their own: a dropped
+     * connection, a `429`, a `5xx`. A `4xx` answers the same every time (retrying a `404`
+     * only spends the quota). Writes never get here with more than one attempt: a `5xx` on
+     * a write may already have landed, and a second POST opens a second pull request.
+     *
+     * `null` is Laravel's exception for a non-2xx that is not an error — the conditional
+     * cache's `304` — which is an answer, not a failure.
+     */
+    protected function retryable(?Throwable $exception): bool
+    {
+        if ($exception instanceof ConnectionException) {
+            return true;
+        }
+
+        if (! $exception instanceof RequestException) {
+            return false;
+        }
+
+        return $exception->response->status() === 429 || $exception->response->serverError();
     }
 
     /**
@@ -891,7 +917,7 @@ abstract class BaseProvider implements Provider
         $start = microtime(true);
         $response = $this->throttled(
             $this->key(),
-            fn (): Response => $this->client()->send($method, $url, ['json' => $payload]),
+            fn (): Response => $this->client(read: false)->send($method, $url, ['json' => $payload]),
         );
         $this->log($method, $url, $response->status(), $start);
         $this->captureRateLimit($response);

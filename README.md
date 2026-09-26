@@ -103,7 +103,7 @@ return [
 | `providers.<name>.token` | string\|null | `null` | Default access token (`Registry::github()` uses it). |
 | `providers.<name>.webhook_secret` | string\|null | `null` | Secret used to verify incoming webhooks. |
 | `providers.<name>.timeout` | int | `10` | HTTP request timeout in seconds. |
-| `providers.<name>.retry` | array\|int | `{times:1, backoff:0}` | Retry attempts and backoff (ms) for 429/5xx. |
+| `providers.<name>.retry` | array\|int | `{times:1, backoff:0}` | Attempts and backoff (ms) for a read that hits a 429/5xx or a dropped connection; writes are never retried. |
 | `providers.<name>.rateLimits.enabled` | bool | `true` | Client-side throttling on/off; `false` sends with no limiter. |
 | `providers.<name>.rateLimits.owner` | string | `app` | Client-side throttle bucket key (`git:<provider>:<owner>`). |
 | `providers.<name>.rateLimits.maxAttempts` | int | provider quota | Max requests per timespan. |
@@ -451,7 +451,9 @@ $reviews->commentsFor($latest);       // just the findings that review published
 
 ### Resilience, caching, and rate limits
 
-Requests retry idempotent 429/5xx responses with backoff and are paced by the client-side rate
+Reads (GET) retry a dropped connection, a `429`, or a `5xx` with backoff (`retry.times` attempts);
+a `4xx` is never retried, and a write is never retried at all — a `5xx` on a write may already
+have landed, and a second POST would open a second pull request. Requests are paced by the client-side rate
 limiter (see [Configuration](#configuration)) — waiting when a window is exhausted, failing fast
 with `RateLimitExceededException` only when a `max_wait` is set, and adapting to the provider's
 own `Retry-After` headers. With `cache.enabled`, ETags are stored and conditional requests serve
