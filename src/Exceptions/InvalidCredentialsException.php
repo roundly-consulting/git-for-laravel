@@ -5,13 +5,28 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Git\Exceptions;
 
 use Exception;
+use Throwable;
 
 final class InvalidCredentialsException extends Exception
 {
-    public static function missing(string $provider): self
+    public static function missing(string $provider, ?Throwable $previous = null): self
     {
         return new self(
-            "Provider [{$provider}] requires authentication for this operation. Provide a credential or set the provider token in config."
+            "Provider [{$provider}] requires authentication for this operation. Provide a credential or set the provider token in config.",
+            previous: $previous,
+        );
+    }
+
+    /**
+     * The forge answered `401` to a request that carried a credential: the token is
+     * wrong, revoked, or expired. Never names the token — the forge's own response is the
+     * previous exception, for a log.
+     */
+    public static function rejected(string $provider, ?Throwable $previous = null): self
+    {
+        return new self(
+            "Provider [{$provider}] rejected the credential (401): it is invalid, revoked, or expired.",
+            previous: $previous,
         );
     }
 

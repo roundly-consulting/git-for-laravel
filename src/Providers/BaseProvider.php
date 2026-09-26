@@ -734,6 +734,15 @@ abstract class BaseProvider implements Provider
         return $this->applyAuthentication($request);
     }
 
+    /**
+     * Put the credential on a request — or nothing at all when there is none.
+     *
+     * An unauthenticated provider is a supported state (public reads need no token), and
+     * "no credential" has to mean NO `Authorization` header: `withToken('')` still sends
+     * `Authorization: Bearer`, which GitHub answers as a bad credential (`401`) instead of
+     * serving the public repository an anonymous caller asked for. All three forges take
+     * their tokens as `Bearer`, so the header is the whole of the difference.
+     */
     protected function applyAuthentication(PendingRequest $request): PendingRequest
     {
         $credential = $this->authentication;
@@ -742,7 +751,29 @@ abstract class BaseProvider implements Provider
             ? $credential->accessToken()
             : $this->tokenValue();
 
-        return $request->withToken($token);
+        return $token === '' ? $request : $request->withToken($token);
+    }
+
+    /**
+     * Answer a `401` as the credential failure it is, rather than as a raw HTTP error.
+     *
+     * A `401` is the one status every forge reserves for the credential itself — missing,
+     * revoked or expired; rate limits are `403`/`429` and invisible resources `404`, and
+     * those stay the documented `RequestException`. With no credential configured it is
+     * the same "this needs authentication" the local guard raises; with one, the forge
+     * refused it. The forge's response stays reachable as the previous exception.
+     */
+    protected function guardUnauthorized(Response $response): void
+    {
+        if ($response->status() !== 401) {
+            return;
+        }
+
+        $previous = $response->toException();
+
+        throw $this->isAuthenticated()
+            ? InvalidCredentialsException::rejected($this->name(), $previous)
+            : InvalidCredentialsException::missing($this->name(), $previous);
     }
 
     protected function tokenValue(): string
@@ -836,6 +867,7 @@ abstract class BaseProvider implements Provider
             return new Response(new GuzzleResponse(200, $response->headers(), $cached['body']));
         }
 
+        $this->guardUnauthorized($response);
         $response->throw();
 
         if ($cache->enabled()) {
@@ -863,6 +895,7 @@ abstract class BaseProvider implements Provider
         );
         $this->log($method, $url, $response->status(), $start);
         $this->captureRateLimit($response);
+        $this->guardUnauthorized($response);
 
         return $response->throw();
     }

@@ -196,6 +196,17 @@ $github = Registry::github(Token::from('ghp_...')); // explicit override
 $gitlab = Registry::provider('gitlab');             // by string, class-string, or ProviderName enum
 ```
 
+With no token configured the provider is **unauthenticated** and reads public repositories
+anonymously — no `Authorization` header is sent at all (GitHub answers an empty `Bearer` as a bad
+credential). Anonymous callers get the forge's anonymous quota (60 requests an hour on GitHub).
+
+**Errors.** A `401` — the forge refusing the credential itself — throws `InvalidCredentialsException`:
+"requires authentication" when none was configured, "rejected the credential" when the token is
+invalid, revoked, or expired (the forge's response is the exception's `getPrevious()`). Every other
+refusal stays Laravel's `RequestException`, so you can read its status: a repository you cannot see
+is a `404` (GitHub hides private repositories from callers without access), and a throttled `403`
+or `429` stays retryable rather than being mistaken for a broken credential.
+
 ### The authenticated user
 
 ```php
