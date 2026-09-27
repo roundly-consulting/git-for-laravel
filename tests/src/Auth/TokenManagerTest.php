@@ -14,17 +14,6 @@ use RoundlyConsulting\Git\Dto\Input\InstallationTokenScope;
 use RoundlyConsulting\Git\Events\OauthTokenRefreshed;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 
-function appCredentials(): GithubAppToken
-{
-    [$privateKey] = generateRsaKeypair();
-
-    return GithubAppToken::for(
-        appId: '123',
-        installationId: '999',
-        privateKey: $privateKey,
-    );
-}
-
 it('mints an installation token and caches it', function () {
     Http::fake([
         '*/app/installations/999/access_tokens' => Http::response([

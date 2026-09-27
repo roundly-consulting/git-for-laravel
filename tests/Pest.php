@@ -3,6 +3,7 @@
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
+use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
 use RoundlyConsulting\Git\Facades\Registry;
 use RoundlyConsulting\Git\Providers\Bitbucket;
@@ -133,6 +134,24 @@ if (! function_exists('bitbucket')) {
             new Token(
                 credentials: new SensitiveParameterValue($accessToken)
             ),
+        );
+    }
+}
+
+if (! function_exists('appCredentials')) {
+    /**
+     * GitHub App credentials over a fresh keypair. Shared here, not in one test file: the
+     * token-manager and administration-scope suites both use it, and a helper declared inside
+     * one of them is undefined whenever the other runs alone or on another parallel worker.
+     */
+    function appCredentials(): GithubAppToken
+    {
+        [$privateKey] = generateRsaKeypair();
+
+        return GithubAppToken::for(
+            appId: '123',
+            installationId: '999',
+            privateKey: $privateKey,
         );
     }
 }
