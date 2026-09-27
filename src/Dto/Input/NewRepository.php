@@ -7,10 +7,7 @@ namespace RoundlyConsulting\Git\Dto\Input;
 use InvalidArgumentException;
 
 /**
- * A repository to create.
- *
- * The fields after `description` are appended rather than woven in so positional callers
- * written against the three-argument version keep working.
+ * A repository to create. Pass the provisioning fields after `description` by name.
  */
 final readonly class NewRepository
 {
