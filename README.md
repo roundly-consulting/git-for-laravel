@@ -111,7 +111,7 @@ return [
 | Key | Type | Default | Purpose |
 |---|---|---|---|
 | `providers.<name>.url` | string | provider API base URL | Base URL for the provider's API. |
-| `providers.<name>.token` | string\|null | `null` | Default access token (`Registry::github()` uses it). |
+| `providers.<name>.token` | string\|null | `null` | Default access token (`Git::github()` uses it). |
 | `providers.<name>.webhook_secret` | string\|null | `null` | Secret used to verify incoming webhooks. |
 | `providers.<name>.timeout` | int | `10` | HTTP request timeout in seconds. |
 | `providers.<name>.retry` | array\|int | `{times:1, backoff:0}` | Attempts and backoff (ms) for a read that hits a 429/5xx or a dropped connection; writes are never retried. |
@@ -131,7 +131,7 @@ return [
 | `webhooks.path` | string | `git/webhooks` | Base path for `POST {path}/{provider}`. |
 | `webhooks.middleware` | array | `['api']` | Middleware applied to the webhook route. |
 | `batch.concurrency` | int | `25` | Max concurrent requests per pool; larger inputs are chunked. |
-| `providers.github.app.id` | string\|null | `null` | GitHub App id; when set, `Registry::github()` mints installation tokens. |
+| `providers.github.app.id` | string\|null | `null` | GitHub App id; when set, `Git::github()` mints installation tokens. |
 | `providers.github.app.installation_id` | string\|null | `null` | GitHub App installation id. |
 | `providers.github.app.private_key` | string\|null | `null` | GitHub App private key — a PEM string or a file path. |
 | `providers.<name>.oauth.client_id` | string\|null | `null` | OAuth client id, read by `OauthToken::forProvider()`. |
@@ -195,16 +195,31 @@ path locally and VCS on CI until they publish to Packagist:
 
 ## Usage
 
-Resolve a provider through the `Registry` facade. With a token in config you don't pass a
-credential at all; an explicit `Token` always overrides config.
+Everything starts at the `Git` facade. `Git::github()` (or `gitlab()`, `bitbucket()`,
+`provider()`) hands you an authenticated driver; `->repo('owner/name')` scopes it to one
+repository, and `->pullRequest($number)` to one pull request of it. With a token in config you
+don't pass a credential at all; an explicit `Token` always overrides config.
 
 ```php
-use RoundlyConsulting\Git\Facades\Registry;
+use RoundlyConsulting\Git\Facades\Git;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
+use RoundlyConsulting\Git\Enums\MergeMethod;
 
-$github = Registry::github();                       // uses config('git.providers.github.token')
-$github = Registry::github(Token::from('ghp_...')); // explicit override
-$gitlab = Registry::provider('gitlab');             // by string, class-string, or ProviderName enum
+$github = Git::github();                       // uses config('git.providers.github.token')
+$github = Git::github(Token::from('ghp_...')); // explicit override
+$gitlab = Git::provider('gitlab');             // by string, class-string, or ProviderName enum
+
+$repo = Git::github()->repo('acme/app');
+
+$repo->pullRequests('open');                   // Page<PullRequest>
+$repo->commits()->branch('main')->lazy();      // LazyCollection<int, Commit>
+$repo->contents('README.md');                  // FileContent (decoded)
+$repo->compare('main', 'feature/ci');          // Comparison
+$repo->releases();                             // Page<Release>
+
+$pr = $repo->pullRequest(12);
+$pr->approve('LGTM');
+$pr->merge(MergeMethod::Squash, sha: $pr->get()->raw()['head']['sha'] ?? null);
 ```
 
 With no token configured the provider is **unauthenticated** and reads public repositories
@@ -218,10 +233,73 @@ refusal stays Laravel's `RequestException`, so you can read its status: a reposi
 is a `404` (GitHub hides private repositories from callers without access), and a throttled `403`
 or `429` stays retryable rather than being mistaken for a broken credential.
 
+### The API at a glance
+
+| Where | Methods |
+| --- | --- |
+| `Git::` (the `GitManager`) | `github(?Credentials)`, `githubApp(?GithubApp)`, `gitlab(?Credentials)`, `bitbucket(?Credentials)`, `provider(name, ?Credentials)`, `capabilities(name)`, `credentials(name)`, `verifyWebhook(name, Request)`, `fake()` |
+| a driver (`Git::github()`) | `repo(path\|Repository)`, `installations()`, `user()`, `repositories()`, `allRepositories()`, `searchRepositories()`, `createRepository()`, `installationRepositories()`, `allInstallationRepositories()`, `batch()`, `rateLimit()`, `supports()` / `supportsAll()` / `supportsAny()` / `capabilities()` / `features()` / `featureMatrix()` / `featureInfo()`, `authenticate()`, `isAuthenticated()` |
+| `->repo('acme/app')` | `get()`, `path()`, `branches()`, `createBranch()`, `commit($sha)`, `commits()`, `pullRequests()`, `pullRequest($n)`, `createPullRequest()`, `issues()`, `issue($n)`, `comment()`, `tags()`, `createTag()`, `releases()`, `release()`, `createRelease()`, `contents()`, `createFile()`, `updateFile()`, `compare()`, `contributors()`, `languages()`, `webhooks()`, `cloneUrl()` |
+| `->pullRequest(12)` | `get()`, `number()`, `merge()`, `approve()`, `review()`, `reviews()`, `close()`, `comment()` |
+| `Git::githubApp()->installations()` | `all()`, `find($id)`, `forOrganization($org)`, `forUser($login)`, `installUrl(?$state)` |
+| `->repo(...)->webhooks()` | `register()`, `all()`, `registered()`, `delete()`, `deleteByUrl()` |
+
+### Without the facade
+
+Every facade call is a call on `GitManager`, the container singleton behind it — inject it
+instead if you prefer constructor injection. `Git::fake()` swaps the injected instance too.
+
+```php
+use RoundlyConsulting\Git\GitManager;
+
+final class ShipRelease
+{
+    public function __construct(private GitManager $git) {}
+
+    public function __invoke(string $repository, int $number): string
+    {
+        return $this->git->github()->repo($repository)->pullRequest($number)->merge();
+    }
+}
+```
+
+git is a remote-API client, so there are no action classes: the drivers *are* the use cases.
+The handles are thin — every handle method is the matching flat method on the driver's
+`Interfaces\Provider` contract with the path filled in — so you can also call that layer
+directly. It is the contract a custom driver implements and the fake doubles:
+
+```php
+$github = app(GitManager::class)->github();
+
+$github->mergePullRequest('acme/app', 12, MergeMethod::Squash); // same call as ->repo()->pullRequest(12)->merge()
+$github->contents('acme/app', 'README.md', ref: 'main');
+```
+
+### Scoped handles refuse to leave their scope
+
+Every path a handle takes ends up inside a forge URL, so the handles check it first and throw
+`OutOfScopeException` (an `InvalidArgumentException`) instead of addressing some other resource:
+
+- `repo()` refuses an empty path, an empty, `.` or `..` segment, and `?`, `#`, `\` or whitespace
+  — and a `Repository` object that belongs to another provider (a GitLab repository on
+  `Git::github()`).
+- `contents()`, `createFile()` and `updateFile()` refuse file paths with `.`/`..`/empty segments,
+  `?`, `#` or `\`; `commit()`, `release()` and `compare()` refuse such refs.
+- `pullRequest()` refuses a number below 1; `installations()->find()` a non-numeric id;
+  `forOrganization()` / `forUser()` anything but a single segment.
+
+```php
+Git::github()->repo('acme/app/../billing'); // OutOfScopeException
+Git::github()->repo($gitlabRepository);     // OutOfScopeException: belongs to GitLab
+```
+
+The flat driver methods take their arguments as given — validate there yourself if you build
+paths from user input and skip the handles.
+
 ### The authenticated user
 
 ```php
-$owner = $github->user();
+$owner = Git::github()->user();
 
 $owner->id;     // "1"
 $owner->name;   // "octocat"
@@ -234,6 +312,8 @@ List endpoints return a `Page` and never silently truncate. Use `allRepositories
 lazily auto-paginating `LazyCollection`.
 
 ```php
+$github = Git::github();
+
 $page = $github->repositories(perPage: 50); // Page<Repository>
 $page->items;     // list<Repository>
 $page->hasMore;   // bool
@@ -243,46 +323,55 @@ foreach ($github->allRepositories() as $repository) {
     // streams across all pages, one request at a time
 }
 
-$repository = $github->repository('octocat/Hello-World');
+$repository = $github->repo('octocat/Hello-World')->get();
 $repository->name;          // "Hello-World"
 $repository->defaultBranch; // "master"
+
+$github->repo($repository)->releases();     // a returned Repository opens its own handle
 ```
 
 ### Branches and commits (fluent query)
 
 ```php
-$branches = $github->branches('octocat/Hello-World')->items; // ['main', 'dev']
+$repo = Git::github()->repo('octocat/Hello-World');
 
-$commits = $github->commits('octocat/Hello-World')   // CommitQuery
-    ->branch('feature/new ui')                       // properly URL-encoded
+$branches = $repo->branches()->items; // ['main', 'dev']
+
+$commits = $repo->commits()                      // CommitQuery
+    ->branch('feature/new ui')                   // properly URL-encoded
     ->author('octocat')
     ->path('src/')
     ->since(now()->subWeek())
     ->until(now())
     ->perPage(50)
-    ->get();                                         // Page<Commit>
+    ->get();                                     // Page<Commit>
 
-foreach ($github->commits('octocat/Hello-World')->branch('main')->lazy() as $commit) {
+foreach ($repo->commits()->branch('main')->lazy() as $commit) {
     // auto-paginated stream
 }
 
-$commit = $github->commit('octocat/Hello-World', '6dcb09b...');
+$commit = $repo->commit('6dcb09b...');
 ```
 
 ### More read endpoints
 
 ```php
-$github->pullRequests('octocat/Hello-World');     // Page<PullRequest>  (GitLab MRs, Bitbucket PRs)
-$github->pullRequest('octocat/Hello-World', 7);
-$github->issues('octocat/Hello-World');           // Page<Issue>
-$github->tags('octocat/Hello-World');             // Page<Tag>
-$github->releases('octocat/Hello-World');         // Page<Release>
-$github->release('octocat/Hello-World', 'v1.0');
-$github->contents('octocat/Hello-World', 'README.md', ref: 'main'); // FileContent (decoded)
-$github->compare('octocat/Hello-World', 'main', 'feature');         // Comparison
-$github->contributors('octocat/Hello-World');     // Page<Contributor>
-$github->languages('octocat/Hello-World');        // ['PHP' => 12345, ...]
-$github->searchRepositories('laravel');           // Page<Repository>
+$repo = Git::github()->repo('octocat/Hello-World');
+
+$repo->pullRequests();                     // Page<PullRequest>  (GitLab MRs, Bitbucket PRs)
+$repo->pullRequests('closed', perPage: 50);
+$repo->pullRequest(7)->get();              // PullRequest
+$repo->issues();                           // Page<Issue>
+$repo->issue(3);                           // Issue
+$repo->tags();                             // Page<Tag>
+$repo->releases();                         // Page<Release>
+$repo->release('v1.0');
+$repo->contents('README.md', ref: 'main'); // FileContent (decoded)
+$repo->compare('main', 'feature');         // Comparison
+$repo->contributors();                     // Page<Contributor>
+$repo->languages();                        // ['PHP' => 12345, ...]
+
+Git::github()->searchRepositories('laravel'); // Page<Repository>
 ```
 
 Capabilities differ per provider; calling one a provider doesn't support throws a
@@ -298,7 +387,7 @@ model. `raw` is never serialized into `toArray()`/`toJson()`.
 ```php
 use RoundlyConsulting\Git\Enums\ResourceState;
 
-$pr = $github->pullRequest('octocat/Hello-World', 1);
+$pr = Git::github()->repo('octocat/Hello-World')->pullRequest(1)->get();
 
 $pr->state;                 // ResourceState::Open — identical across GitHub/GitLab/Bitbucket
 $pr->raw()['mergeable'];    // any unmodelled provider field, still reachable
@@ -312,6 +401,8 @@ one). Pooled requests carry the same authentication as single requests but bypas
 conditional cache.
 
 ```php
+$github = Git::github();
+
 $result = $github->batch()->languages(['acme/api', 'acme/web']); // BatchResult<array<string,int>>
 
 $result->results();          // ['acme/api' => ['PHP' => 80, ...], ...]
@@ -334,14 +425,15 @@ All writes take typed input DTOs and require an authenticated provider.
 ```php
 use RoundlyConsulting\Git\Dto\Input\{NewRepository, NewBranch, NewFile, NewPullRequest, NewComment, NewRelease, NewTag, NewWebhook};
 
-$repo = $github->createRepository(new NewRepository(name: 'acme', private: true));
-$github->createBranch('acme/acme', new NewBranch('feature/ci', 'main'));
-$github->createFile('acme/acme', new NewFile('ci.yml', '...', 'Add CI', 'feature/ci'));
-$pr = $github->createPullRequest('acme/acme', new NewPullRequest('Add CI', 'feature/ci', 'main'));
-$github->comment('acme/acme', new NewComment(number: $pr->number, body: 'LGTM'));
-$github->createRelease('acme/acme', new NewRelease('v1.0', 'First release'));
-$webhook = $github->createWebhook('acme/acme', new NewWebhook('https://example.com/hook', ['push'], secret: '...'));
-$github->deleteWebhook('acme/acme', $webhook->id);
+$created = Git::github()->createRepository(new NewRepository(name: 'acme', private: true));
+
+$repo = Git::github()->repo('acme/acme');
+$repo->createBranch(new NewBranch('feature/ci', 'main'));
+$repo->createFile(new NewFile('ci.yml', '...', 'Add CI', 'feature/ci'));
+$pr = $repo->createPullRequest(new NewPullRequest('Add CI', 'feature/ci', 'main'));
+$repo->pullRequest($pr->number)->comment('LGTM');   // or $repo->comment(new NewComment($pr->number, 'LGTM'))
+$repo->createRelease(new NewRelease('v1.0', 'First release'));
+$repo->createTag(new NewTag('v1.0.1', 'main'));
 ```
 
 #### Creating a repository
@@ -352,7 +444,7 @@ repository (`POST /repos/{template}/generate`), an `owner` creates in that organ
 (`POST /user/repos`).
 
 ```php
-$repo = $github->createRepository(new NewRepository(
+$repo = Git::github()->createRepository(new NewRepository(
     name: 'widget-for-laravel',
     private: true,
     owner: 'acme',
@@ -384,13 +476,13 @@ generation is GitHub-only and answers `FeatureNotSupportedException` elsewhere.
 ```php
 use RoundlyConsulting\Git\Enums\MergeMethod;
 
-$github->closePullRequest('acme/acme', $pr->number);           // PullRequest, state closed
-$github->approvePullRequest('acme/acme', $pr->number, 'LGTM'); // the review's own state
-$sha = $github->mergePullRequest(
-    'acme/acme',
-    $pr->number,
-    MergeMethod::Squash,   // Merge | Squash | Rebase — a repository may disallow any of them
-    sha: $pr->raw()['head']['sha'] ?? null,
+$pr = Git::github()->repo('acme/acme')->pullRequest($number);
+
+$pr->close();           // PullRequest, state closed — never merges
+$pr->approve('LGTM');   // the review's own state
+$sha = $pr->merge(
+    MergeMethod::Squash, // Merge | Squash | Rebase — a repository may disallow any of them
+    sha: $headSha,       // the head commit you decided about
 );
 ```
 
@@ -417,7 +509,9 @@ A whole review in one call — a verdict, a summary, and inline comments anchore
 use RoundlyConsulting\Git\Dto\Input\{NewReview, NewReviewComment};
 use RoundlyConsulting\Git\Enums\{DiffSide, ReviewEvent};
 
-$review = $github->reviewPullRequest('acme/acme', $pr->number, new NewReview(
+$pr = Git::github()->repo('acme/acme')->pullRequest($number);
+
+$review = $pr->review(new NewReview(
     event: ReviewEvent::Comment,                    // Comment | Approve | RequestChanges
     body: 'Two findings, one blocking.',
     comments: [
@@ -432,7 +526,7 @@ $review = $github->reviewPullRequest('acme/acme', $pr->number, new NewReview(
 Reading back what has been said in review:
 
 ```php
-$reviews = $github->pullRequestReviews('acme/acme', $pr->number);
+$reviews = $pr->reviews();
 
 $reviews->reviews;                    // list<PullRequestReview>        — state, body, author, submittedAt
 $reviews->comments;                   // list<PullRequestReviewComment> — body, path, line, side, reviewId
@@ -446,8 +540,8 @@ $reviews->commentsFor($latest);       // just the findings that review published
 - **One request, not one per comment.** GitHub publishes a review atomically; posting the
   comments separately leaves half a review on the pull request when anything fails partway.
 - **`Approve` and `RequestChanges` are refused on your own pull request** (`422`), exactly as
-  `approvePullRequest()` is. An account that authors pull requests can only ever `Comment` on
-  its own work — so put the verdict a reader acts on in the **body**.
+  `approve()` is. An account that authors pull requests can only ever `Comment` on its own
+  work — so put the verdict a reader acts on in the **body**.
 - **A comment anchored off the diff is also a `422`** — the line was never changed. It arrives
   as the same `RequestException`; you can tell the two apart by whether you sent comments.
   `startLine` must come *before* `line`; an inverted or collapsed span is rejected locally,
@@ -471,21 +565,30 @@ own `Retry-After` headers. With `cache.enabled`, ETags are stored and conditiona
 `304` responses from cache. The last response's server-reported rate limit is exposed:
 
 ```php
-$status = $github->rateLimit(); // ?RateLimitStatus { limit, remaining, used, resetAt }
+$status = Git::github()->rateLimit(); // ?RateLimitStatus { limit, remaining, used, resetAt }
 ```
 
 ### Clone URL
 
 ```php
-$url = $github->cloneUrlForRepository('octocat/Hello-World', 'octocat', Token::from('ghp_...'));
-// https://token:ghp_...@github.com/octocat/Hello-World.git
+$url = Git::github()->repo('octocat/Hello-World')->cloneUrl('octocat', Token::from('ghp_...'));
+// https://token:ghp_...@github.com/octocat/Hello-World.git  (GitHub uses its own username)
+```
+
+To clone with the credential git itself is configured with, read it off the manager:
+
+```php
+use RoundlyConsulting\Git\Enums\ProviderName;
+
+$credentials = Git::credentials(ProviderName::Github); // ?Credentials — app installation, else token, else null
+$url = Git::github()->repo('octocat/Hello-World')->cloneUrl('octocat', $credentials);
 ```
 
 A refreshable credential is asked for a live token instead of being read for a static one, and
 an installation token gets GitHub's documented username:
 
 ```php
-$url = $github->cloneUrlForRepository('octocat/Hello-World', 'octocat', $installationCredentials);
+$url = Git::github()->repo('octocat/Hello-World')->cloneUrl('octocat', $installationCredentials);
 // https://x-access-token:ghs_...@github.com/octocat/Hello-World.git
 ```
 
@@ -507,7 +610,7 @@ JWT library.
 use RoundlyConsulting\Git\Dto\Credentials\{GithubAppToken, OauthToken};
 use RoundlyConsulting\Git\Enums\ProviderName;
 
-$github = Registry::github(GithubAppToken::for(
+$github = Git::github(GithubAppToken::for(
     appId: config('git.providers.github.app.id'),
     installationId: config('git.providers.github.app.installation_id'),
     privateKey: config('git.providers.github.app.private_key'), // PEM string or file path
@@ -517,15 +620,17 @@ $github->repositories(); // installation token minted, cached to expiry, reused
 // The OAuth client (`client_id`, `client_secret`, `token_url`) is static per provider, so
 // `forProvider()` takes it from `git.providers.github.oauth.*` and asks only for the
 // per-user half. Pass all five to `OauthToken::for()` to bypass config entirely.
-$github = Registry::github(OauthToken::forProvider(
+$github = Git::github(OauthToken::forProvider(
     ProviderName::Github,
     accessToken: $access, refreshToken: $refresh, expiresAt: $expiresAt,
 ));
 ```
 
-When `git.providers.github.app.id` is configured, `Registry::github()` builds a
-`GithubAppToken` automatically — no explicit credential needed. Use a shared cache store (not
-the `array` driver) so minted tokens persist across requests.
+When `git.providers.github.app.id` is configured, `Git::github()` builds a `GithubAppToken`
+automatically — no explicit credential needed. `Git::credentials(ProviderName::Github)` returns
+that same credential, and `->accessToken()` on it reads the live installation token (minting it
+when the cache is cold). Use a shared cache store (not the `array` driver) so minted tokens
+persist across requests.
 
 #### Persisting a rotated refresh token
 
@@ -564,7 +669,7 @@ use RoundlyConsulting\Git\Dto\Input\InstallationTokenScope;
 $scoped = GithubAppToken::for(appId: $id, installationId: $installation, privateKey: $key)
     ->forScope(InstallationTokenScope::forRepositories(repositoryIds: ['40823311']));
 
-Registry::github($scoped)->cloneUrlForRepository('acme/api', 'acme', $scoped);
+Git::github($scoped)->repo('acme/api')->cloneUrl('acme', $scoped);
 ```
 
 `forRepositories()` takes the permission set from `git.providers.github.app.permissions`.
@@ -572,15 +677,14 @@ Either selector works — `repositoryIds` (numeric, survives a rename) or `repos
 (names) — and they are equally narrow.
 
 An **empty** scope is refused outright: a scope object that names no repository would mint a
-token for every repository in the installation, so `TokenManager` throws rather than
-silently widening.
+token for every repository in the installation, so the token is never minted.
 
 The one operation that genuinely cannot name a repository is asking which repositories an
 installation has. Use `InstallationTokenScope::metadataOnly()` there — wide on the repository
 axis, `metadata: read` on the other:
 
 ```php
-Registry::github($credentials->forScope(InstallationTokenScope::metadataOnly()))
+Git::github($credentials->forScope(InstallationTokenScope::metadataOnly()))
     ->installationRepositories();
 ```
 
@@ -595,24 +699,24 @@ because consumers treat the former as "reconnect required".
 
 `/app/**` endpoints authenticate with the app's own JWT rather than an installation token.
 That is how you verify an installation id before trusting it — for instance one that arrived
-from a browser redirect:
+from a browser redirect.
 
-`Registry::githubApp()` reads `git.providers.github.app.{id,private_key}` and throws
+`Git::githubApp()` reads `git.providers.github.app.{id,private_key}` and throws
 `InvalidCredentialsException` naming the missing key when either is absent. The `/app/**`
 endpoints require **app** credentials and the installation endpoints require an
 **installation** credential; using the wrong one raises this package's own exception rather
 than GitHub's opaque 403.
 
 ```php
-$installation = Registry::githubApp()->installation($installationIdFromTheRedirect);
+$installation = Git::githubApp()->installations()->find($installationIdFromTheRedirect);
 
 $installation->accountLogin;            // "acme-inc"
 $installation->repositorySelection;     // "all" | "selected"
 $installation->reachesEveryRepository();
 $installation->isSuspended();
 
-Registry::github($credentials)->installationRepositories(); // NOT /user/repos: an
-                                                            // installation token 403s there
+Git::github($credentials)->installationRepositories(); // NOT /user/repos: an
+                                                       // installation token 403s there
 ```
 
 The other app-JWT lookups — every account the app is installed on, and finding an existing
@@ -620,28 +724,29 @@ installation by account rather than by id (useful when a customer reinstalls and
 id goes stale):
 
 ```php
-Registry::githubApp()->installations();                       // Page<Installation>
-Registry::githubApp()->organizationInstallation('acme-inc');  // Installation
-Registry::githubApp()->userInstallation('octocat');           // Installation
+$installations = Git::githubApp()->installations();
+
+$installations->all();                      // Page<Installation>
+$installations->forOrganization('acme-inc'); // Installation
+$installations->forUser('octocat');          // Installation
 ```
 
-All of these live on the shared `Provider` interface, so they are callable on the `Provider`
-type without an `instanceof`, drivable through `Registry::fake()`, and answer
-`FeatureNotSupportedException` on GitLab and Bitbucket.
+All of these are callable on the `Provider` type without an `instanceof`, drivable through
+`Git::fake()`, and answer `FeatureNotSupportedException` on GitLab and Bitbucket.
 
 Send a human to install the app with `installUrl()`; GitHub echoes `state` back to the app's
 Setup URL alongside `installation_id`, which is what ties the redirect that returns to the
 request that left:
 
 ```php
-$url = Registry::githubApp()->installUrl($state); // https://github.com/apps/<slug>/installations/new?state=…
+$url = Git::githubApp()->installations()->installUrl($state); // https://github.com/apps/<slug>/installations/new?state=…
 ```
 
 ### Webhooks
 
 Set `GIT_WEBHOOKS_ENABLED=true` and a `*_WEBHOOK_SECRET` per provider. Incoming requests to
 `POST {webhooks.path}/{provider}` are signature-verified (GitHub `X-Hub-Signature-256`, GitLab
-`X-Gitlab-Token`, Bitbucket `X-Hub-Signature`) and dispatched as events:
+`X-Gitlab-Token`, Bitbucket `X-Hub-Signature`) and dispatched as events.
 
 Inbound payloads run through the same canonical mappers, so listeners get typed, provider-
 agnostic accessors instead of hand-parsing three raw shapes (`raw()` stays available):
@@ -668,19 +773,38 @@ A missing or invalid signature returns `403` and dispatches nothing. The HMAC is
 **raw** request body and compared in constant time (via crypto-for-laravel), so a forged payload
 never reaches your listeners and a partially-correct signature leaks nothing through timing.
 
+**Your own route.** Keep `GIT_WEBHOOKS_ENABLED=false` and run the same check yourself:
+
+```php
+use Illuminate\Http\Request;
+use RoundlyConsulting\Git\Enums\ProviderName;
+
+Route::post('/hooks/github', function (Request $request) {
+    abort_unless(Git::verifyWebhook(ProviderName::Github, $request), 403);
+
+    // … your handling
+});
+```
+
+`verifyWebhook()` reads `git.providers.<name>.webhook_secret`; with no secret configured it
+answers `false` — nothing verifies, rather than everything.
+
 ### Webhook auto-registration
 
-`webhooks($repo)` ties this app's inbound route to the provider's outbound create-webhook op:
-it derives the URL from the published `git.webhooks` route, defaults the secret to the
+`repo(...)->webhooks()` ties this app's inbound route to the provider's outbound create-webhook
+op: it derives the URL from the published `git.webhooks` route, defaults the secret to the
 configured `webhook_secret`, and is idempotent (a hook with the same URL is never created
 twice).
 
 ```php
-$github->webhooks('acme/api')->register();              // returns the existing or new Webhook
-$github->webhooks('acme/api')->register(events: ['push', 'pull_request']);
-$github->webhooks('acme/api')->all();                   // list<Webhook>
-$github->webhooks('acme/api')->registered($url);        // bool
-$github->webhooks('acme/api')->deleteByUrl($url);
+$webhooks = Git::github()->repo('acme/api')->webhooks();
+
+$webhooks->register();                                 // returns the existing or new Webhook
+$webhooks->register(events: ['push', 'pull_request']);
+$webhooks->all();                                      // list<Webhook>
+$webhooks->registered($url);                           // bool
+$webhooks->delete($id);
+$webhooks->deleteByUrl($url);
 ```
 
 ### Artisan commands
@@ -694,19 +818,37 @@ php artisan git:webhook github acme/api [--url=] [--events=push] [--secret=] [--
 
 ### Testing without real HTTP
 
+`Git::fake()` swaps the manager for a recording `GitFake` — for the facade **and** for anything
+that injected `GitManager`. Every driver it hands out is a seedable `ProviderFake`, no HTTP
+leaves the process (`Http::preventStrayRequests()`), and every call is recorded — whether it
+went through the flat driver methods, a `repo()` / `pullRequest()` / `installations()` handle,
+`webhooks()` or `batch()`.
+
 ```php
-use RoundlyConsulting\Git\Facades\Registry;
+use RoundlyConsulting\Git\Facades\Git;
 use RoundlyConsulting\Git\Enums\ProviderName;
 
-$fake = Registry::fake();
-$fake->github()->seedRepositories([$repositoryDto]);
+$fake = Git::fake();
+$fake->github()->seedRepositories([$repositoryDto])->seedMergeCommit('abc123');
 
-// run code that calls Registry::github()->repositories() ...
+// run code that calls Git::github()->repo('acme/app')->pullRequest(12)->merge() ...
 
-$fake->assertSent(ProviderName::Github, 'repositories');
-$fake->assertRepositoryCreated('new-repo');
-$fake->assertRepositoryCreated('new-repo', owner: 'acme', template: 'acme/package-template');
+Git::assertSent(ProviderName::Github, 'mergePullRequest');
+Git::assertSent(ProviderName::Github, 'mergePullRequest', fn (string $path, int $number) => $number === 12);
+Git::assertSentTimes(ProviderName::Github, 'approvePullRequest', 1);
+Git::assertNotSent(ProviderName::Github, 'closePullRequest');
+Git::assertNothingSent(ProviderName::Gitlab);
+Git::assertBatched(ProviderName::Github, 'languages');
+Git::assertNotBatched(ProviderName::Github, 'repositories');
+Git::assertRepositoryCreated('new-repo', owner: 'acme', template: 'acme/package-template');
+Git::assertNoRepositoryCreated();
+
+Git::recorded(ProviderName::Github, 'mergePullRequest'); // list<RecordedCall> — method + arguments
 ```
+
+Every assert names the **driver method** the call reached (the handles call the flat
+methods), and an `assertSent()` / `assertNotSent()` callback receives that method's arguments
+positionally. `assertNothingSent()` without a provider checks every provider at once.
 
 The double answers the **whole** `Provider` contract — every read, write, installation lookup,
 and the commit query — so a host application never hits an "undefined method" as it grows. Three
@@ -725,7 +867,7 @@ Seeders, all chainable: `seedRepositories` `seedRepository` `seedCreatedReposito
 `seedApprovalState` `seedSubmittedReview` `seedPullRequestReviews` `seedUser`
 `seedInstallation` `seedInstallations` `seedWebhooks` `seedCreatedWebhook` `seedBatch`.
 
-`reviewPullRequest()` needs no seeding: it answers the state the event actually means
+`review()` needs no seeding: it answers the state the event actually means
 (`Comment` → `COMMENTED`, never `APPROVED`), so a host asserting on the verdict cannot pass
 against a fake that would fail against GitHub. `seedSubmittedReview()` overrides that when a
 test needs a specific id or url back. `seedPullRequestReviews($reviews, $comments)` seeds the
@@ -736,13 +878,14 @@ $fake->github()
     ->seedPullRequest($pullRequestDto)
     ->seedMergeCommit('abc123');
 
-// closePullRequest() returns the seeded PR with state Closed; mergePullRequest() returns 'abc123'
+// ->pullRequest(n)->close() returns the seeded PR with state Closed; ->merge() returns 'abc123'
 ```
 
 A few reads fall back on purpose rather than answering empty: `installationRepositories()` reads
-the same bucket as `repositories()`, `installations()` stands in the single seeded installation,
-`searchRepositories()` falls back to the repository bucket, and `pullRequest()` / `issue()` /
-`release()` take the first of their list.
+the same bucket as `repositories()`, `installations()->all()` stands in the single seeded
+installation, `searchRepositories()` falls back to the repository bucket, and `pullRequest()` /
+`issue()` / `release()` take the first of their list. An unseeded pull request answers with the
+number you asked for.
 
 ### Feature detection
 
@@ -751,25 +894,25 @@ Branch on the capability matrix instead of catching `FeatureNotSupportedExceptio
 ```php
 use RoundlyConsulting\Git\Enums\Feature;
 
+$github = Git::github();
+
 if ($github->supports(Feature::ListCommits)) {
-    $github->commits('octocat/Hello-World')->get();
+    $github->repo('octocat/Hello-World')->commits()->get();
 }
 
 $github->supportsAll(Feature::CreateRelease, Feature::CreateTag); // bool
 $github->supportsAny(Feature::Languages);                         // bool
 $github->capabilities();                                          // ['repositories' => true, ...]
 $github->featureMatrix();                                         // list<FeatureInfo> with ->supported
-Registry::capabilities(ProviderName::Bitbucket);                  // without authenticating
+Git::capabilities(ProviderName::Bitbucket);                       // without authenticating
 ```
 
-The testing fake also records pooled calls — `$fake->assertBatched(ProviderName::Github, 'languages')`.
+### Extending the manager
 
-### Extending the registry
-
-`Registry` is macroable, so you can register your own provider shortcuts:
+`GitManager` is macroable, so you can register your own provider shortcuts:
 
 ```php
-Registry::macro('myHost', fn ($credentials = null) => $this->provider(MyProvider::class, $credentials));
+Git::macro('myHost', fn ($credentials = null) => $this->provider(MyProvider::class, $credentials));
 ```
 
 ## Testing

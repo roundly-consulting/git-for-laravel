@@ -10,8 +10,17 @@ Initial public release.
 
 ### Added
 
-- One Laravel-native API for GitHub, GitLab and Bitbucket through the `Registry` facade, with
-  anonymous access to public repositories or token authentication from config.
+- One Laravel-native API for GitHub, GitLab and Bitbucket through the `Git` facade (or an
+  injected `GitManager`), with anonymous access to public repositories or token authentication
+  from config.
+- Scoped handles: `Git::github()->repo('acme/app')` for everything about one repository,
+  `->pullRequest(12)` for `merge()`, `approve()`, `review()`, `reviews()`, `close()` and
+  `comment()`, and `Git::githubApp()->installations()` for `find()`, `all()`,
+  `forOrganization()`, `forUser()` and `installUrl()`. Handles refuse paths and identifiers that
+  would step outside their scope, and repositories of another provider (`OutOfScopeException`).
+- `Git::credentials($provider)` returns the configured credential (app installation, else
+  token) and `Git::verifyWebhook($provider, $request)` verifies an inbound webhook for a
+  host-owned route.
 - Read endpoints returning typed, provider-agnostic data objects: repositories, branches, commits,
   pull requests, issues, tags, releases, file contents, diffs, contributors and languages — each
   with a `raw()` escape hatch.
@@ -24,10 +33,13 @@ Initial public release.
 - Self-refreshing GitHub App installation tokens and OAuth tokens, repository-scoped installation
   tokens and an `OauthTokenRefreshed` event for persisting rotated refresh tokens.
 - Signed webhook receiving (GitHub, GitLab, Bitbucket) dispatched as typed events such as
-  `PushReceived`, plus idempotent webhook auto-registration.
-- Authenticated clone URLs (`cloneUrlForRepository()`) and feature detection with `supports()`.
+  `PushReceived`, plus idempotent webhook auto-registration via `repo(...)->webhooks()`.
+- Authenticated clone URLs (`repo(...)->cloneUrl()`) and feature detection with `supports()`.
 - Read retries with backoff, ETag caching, and client-side rate limiting that honours the
   provider's `Retry-After`.
 - Artisan commands `git:repos`, `git:commits`, `git:rate-limit` and `git:webhook`.
-- `Registry::fake()`, a full test double with chainable seeders and assertions such as
-  `assertSent()` and `assertRepositoryCreated()`.
+- `Git::fake()`, a full test double (also served to an injected `GitManager`) that records
+  every call — flat or through a handle — with chainable seeders and `assertSent()` (optionally
+  matching arguments), `assertSentTimes()`, `assertNotSent()`, `assertNothingSent()`,
+  `assertBatched()`, `assertNotBatched()`, `assertRepositoryCreated()`,
+  `assertNoRepositoryCreated()` and `recorded()`.
