@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Git\Query;
 use Closure;
 use Illuminate\Support\Collection;
 use Illuminate\Support\LazyCollection;
+use InvalidArgumentException;
 use RoundlyConsulting\Git\Dto\Page;
 
 /**
@@ -28,8 +29,18 @@ abstract class Query
         protected readonly Closure $fetcher,
     ) {}
 
+    /**
+     * Results per page — capped at the forge's maximum (100) when the request is sent.
+     *
+     * @throws InvalidArgumentException when below 1, which would make every page look
+     *                                  full and a lazy walk never end
+     */
     public function perPage(int $perPage): static
     {
+        if ($perPage < 1) {
+            throw new InvalidArgumentException("Results per page must be at least 1; got [{$perPage}].");
+        }
+
         $this->perPage = $perPage;
 
         return $this;

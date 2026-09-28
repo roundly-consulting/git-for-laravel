@@ -14,6 +14,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\LazyCollection;
+use InvalidArgumentException;
 use RoundlyConsulting\Crypto\Hash\Digest;
 use RoundlyConsulting\Git\Batch\Batch;
 use RoundlyConsulting\Git\Batch\BatchError;
@@ -73,6 +74,9 @@ abstract class BaseProvider implements Provider
 {
     use InteractsWithRateLimits;
     use ProvidesHandles;
+
+    /** The largest page any of the three forges serves. */
+    protected const MAX_PER_PAGE = 100;
 
     protected ?Credentials $authentication = null;
 
@@ -1047,6 +1051,7 @@ abstract class BaseProvider implements Provider
      */
     protected function paginate(string $url, array $query, int $page, int $perPage, Closure $map, ?string $itemsKey = null): Page
     {
+        $perPage = $this->pageSize($perPage);
         $query = array_merge($query, $this->pageParameters($page, $perPage));
 
         $response = $this->get($url, $query);
@@ -1138,8 +1143,38 @@ abstract class BaseProvider implements Provider
         return ['page' => $page, 'per_page' => $perPage];
     }
 
+    /**
+     * The page size actually requested.
+     *
+     * All three forges cap a page at 100 and quietly answer a larger request with 100,
+     * so asking for more is capped here — the page then reports the size it really has,
+     * and "is there more?" is decided against it. Below 1 is refused: `per_page=0` is
+     * read by the forge as its default, so every page — even the empty last one — would
+     * look full and a lazy walk would never end.
+     *
+     * @throws InvalidArgumentException when below 1
+     */
+    protected function pageSize(int $perPage): int
+    {
+        if ($perPage < 1) {
+            throw new InvalidArgumentException("Results per page must be at least 1; got [{$perPage}].");
+        }
+
+        return min($perPage, self::MAX_PER_PAGE);
+    }
+
+    /**
+     * Whether another page follows: the `Link: rel="next"` header when the forge sends
+     * one (GitHub), a full page otherwise.
+     */
     protected function hasMorePages(Response $response, int $count, int $perPage): bool
     {
+        $link = $response->header('Link');
+
+        if ($link !== '') {
+            return preg_match('/<[^>]*>\s*;[^,]*\brel="?next"?/i', $link) === 1;
+        }
+
         return $count >= $perPage;
     }
 }
