@@ -35,6 +35,8 @@ use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
+use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
+use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Mapping\GitlabMapper;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
@@ -144,7 +146,7 @@ class Gitlab extends BaseProvider
     public function commit(string $path, string $commit): Commit
     {
         return $this->mapper()->commit(
-            $this->get('/api/v4/projects/'.$this->encode($path).'/repository/commits/'.rawurlencode($commit))->json()
+            $this->get('/api/v4/projects/'.$this->encode($path).'/repository/commits/'.$this->encodeWhole(PathGuard::ref('commit ref', $commit)))->json()
         );
     }
 
@@ -227,7 +229,7 @@ class Gitlab extends BaseProvider
         $this->guardSupported(Feature::FindRelease);
 
         return $this->mapper()->release(
-            $this->get('/api/v4/projects/'.$this->encode($path).'/releases/'.rawurlencode($tagOrId))->json()
+            $this->get('/api/v4/projects/'.$this->encode($path).'/releases/'.$this->encodeWhole(PathGuard::ref('release tag', $tagOrId)))->json()
         );
     }
 
@@ -266,7 +268,7 @@ class Gitlab extends BaseProvider
     public function contentsRequest(string $path, string $filePath, ?string $ref = null): array
     {
         return [
-            '/api/v4/projects/'.$this->encode($path).'/repository/files/'.rawurlencode($filePath),
+            '/api/v4/projects/'.$this->encode($path).'/repository/files/'.$this->encodeWhole(PathGuard::file($filePath)),
             ['ref' => $ref ?? 'main'],
         ];
     }
@@ -433,7 +435,7 @@ class Gitlab extends BaseProvider
 
         $response = $this->send(
             'POST',
-            '/api/v4/projects/'.$this->encode($path).'/repository/files/'.rawurlencode($data->path),
+            '/api/v4/projects/'.$this->encode($path).'/repository/files/'.$this->encodeWhole(PathGuard::file($data->path)),
             [
                 'branch' => $data->branch,
                 'content' => $data->content,
@@ -451,7 +453,7 @@ class Gitlab extends BaseProvider
 
         $response = $this->send(
             'PUT',
-            '/api/v4/projects/'.$this->encode($path).'/repository/files/'.rawurlencode($data->path),
+            '/api/v4/projects/'.$this->encode($path).'/repository/files/'.$this->encodeWhole(PathGuard::file($data->path)),
             [
                 'branch' => $data->branch,
                 'content' => $data->content,
@@ -567,7 +569,7 @@ class Gitlab extends BaseProvider
         $this->guardSupported(Feature::DeleteWebhook);
         $this->guardAuthenticated();
 
-        $this->send('DELETE', '/api/v4/projects/'.$this->encode($path)."/hooks/{$id}");
+        $this->send('DELETE', '/api/v4/projects/'.$this->encode($path).'/hooks/'.$this->webhookSegment($id));
     }
 
     /** @return list<Webhook> */
@@ -667,9 +669,21 @@ class Gitlab extends BaseProvider
         ];
     }
 
+    /**
+     * A project path as GitLab addresses it: guarded, then encoded WHOLE — GitLab takes
+     * `group/sub/project` as one `%2F`-joined id, not as path segments.
+     *
+     * @throws OutOfScopeException
+     */
     protected function encode(string $path): string
     {
-        return rawurlencode($path);
+        return $this->encodeWhole(PathGuard::repository($path));
+    }
+
+    /** One URL segment for an already-guarded value: file paths and refs are `%2F`-joined too. */
+    private function encodeWhole(string $value): string
+    {
+        return rawurlencode($value);
     }
 
     protected function mapState(string $state): string

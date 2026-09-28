@@ -46,6 +46,7 @@ use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
+use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Mapping\GithubMapper;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
@@ -55,6 +56,12 @@ class Github extends BaseProvider
     protected function key(): string
     {
         return 'github';
+    }
+
+    /** `/repos/{owner}/{name}`, the path guarded and encoded segment by segment. */
+    protected function repos(string $path): string
+    {
+        return '/repos/'.$this->repositorySegments($path);
     }
 
     /**
@@ -105,7 +112,7 @@ class Github extends BaseProvider
 
     public function repository(string $path): Repository
     {
-        return $this->mapper()->repository($this->get("/repos/{$path}")->json());
+        return $this->mapper()->repository($this->get($this->repos($path))->json());
     }
 
     /**
@@ -160,7 +167,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::FindInstallation);
         $this->guardCredential(GithubApp::class);
 
-        return $this->mapper()->installation($this->get("/app/installations/{$id}")->json());
+        return $this->mapper()->installation($this->get('/app/installations/'.PathGuard::numeric('installation id', $id))->json());
     }
 
     /**
@@ -188,7 +195,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::FindInstallation);
         $this->guardCredential(GithubApp::class);
 
-        return $this->mapper()->installation($this->get("/orgs/{$organization}/installation")->json());
+        return $this->mapper()->installation($this->get('/orgs/'.$this->accountSegment('organization', $organization).'/installation')->json());
     }
 
     /** This app's installation on a user account, if any (app JWT). */
@@ -197,7 +204,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::FindInstallation);
         $this->guardCredential(GithubApp::class);
 
-        return $this->mapper()->installation($this->get("/users/{$login}/installation")->json());
+        return $this->mapper()->installation($this->get('/users/'.$this->accountSegment('login', $login).'/installation')->json());
     }
 
     /**
@@ -227,7 +234,7 @@ class Github extends BaseProvider
     public function branches(string $path, int $perPage = 30): Page
     {
         return $this->paginate(
-            url: "/repos/{$path}/branches",
+            url: $this->repos($path).'/branches',
             query: [],
             page: 1,
             perPage: $perPage,
@@ -261,7 +268,7 @@ class Github extends BaseProvider
             }
 
             return $this->paginate(
-                url: "/repos/{$path}/commits",
+                url: $this->repos($path).'/commits',
                 query: $query,
                 page: $page,
                 perPage: $perPage,
@@ -272,7 +279,7 @@ class Github extends BaseProvider
 
     public function commit(string $path, string $commit): Commit
     {
-        return $this->mapper()->commit($this->get("/repos/{$path}/commits/{$commit}")->json());
+        return $this->mapper()->commit($this->get($this->repos($path).'/commits/'.$this->refSegments('commit ref', $commit))->json());
     }
 
     /** @return Page<PullRequest> */
@@ -281,7 +288,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::ListPullRequests);
 
         return $this->paginate(
-            url: "/repos/{$path}/pulls",
+            url: $this->repos($path).'/pulls',
             query: ['state' => $state],
             page: 1,
             perPage: $perPage,
@@ -293,7 +300,7 @@ class Github extends BaseProvider
     {
         $this->guardSupported(Feature::FindPullRequest);
 
-        return $this->mapper()->pullRequest($this->get("/repos/{$path}/pulls/{$number}")->json());
+        return $this->mapper()->pullRequest($this->get($this->repos($path)."/pulls/{$number}")->json());
     }
 
     /** @return Page<Issue> */
@@ -302,7 +309,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::ListIssues);
 
         return $this->paginate(
-            url: "/repos/{$path}/issues",
+            url: $this->repos($path).'/issues',
             query: ['state' => $state],
             page: 1,
             perPage: $perPage,
@@ -314,7 +321,7 @@ class Github extends BaseProvider
     {
         $this->guardSupported(Feature::FindIssue);
 
-        return $this->mapper()->issue($this->get("/repos/{$path}/issues/{$number}")->json());
+        return $this->mapper()->issue($this->get($this->repos($path)."/issues/{$number}")->json());
     }
 
     /** @return Page<Tag> */
@@ -323,7 +330,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::ListTags);
 
         return $this->paginate(
-            url: "/repos/{$path}/tags",
+            url: $this->repos($path).'/tags',
             query: [],
             page: 1,
             perPage: $perPage,
@@ -337,7 +344,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::ListReleases);
 
         return $this->paginate(
-            url: "/repos/{$path}/releases",
+            url: $this->repos($path).'/releases',
             query: [],
             page: 1,
             perPage: $perPage,
@@ -349,14 +356,14 @@ class Github extends BaseProvider
     {
         $this->guardSupported(Feature::FindRelease);
 
-        return $this->mapper()->release($this->get("/repos/{$path}/releases/tags/{$tagOrId}")->json());
+        return $this->mapper()->release($this->get($this->repos($path).'/releases/tags/'.$this->refSegments('release tag', $tagOrId))->json());
     }
 
     public function contents(string $path, string $filePath, ?string $ref = null): FileContent
     {
         $this->guardSupported(Feature::FileContents);
 
-        $response = $this->get("/repos/{$path}/contents/{$filePath}", $ref !== null ? ['ref' => $ref] : []);
+        $response = $this->get($this->repos($path).'/contents/'.$this->fileSegments($filePath), $ref !== null ? ['ref' => $ref] : []);
 
         return $this->mapFileContent($response->json());
     }
@@ -364,19 +371,19 @@ class Github extends BaseProvider
     /** @internal the batch plumbing. */
     public function repositoryUrl(string $path): string
     {
-        return "/repos/{$path}";
+        return $this->repos($path);
     }
 
     /** @internal the batch plumbing. */
     public function languagesUrl(string $path): string
     {
-        return "/repos/{$path}/languages";
+        return $this->repos($path).'/languages';
     }
 
     /** @internal the batch plumbing. */
     public function pullRequestUrl(string $path, int $number): string
     {
-        return "/repos/{$path}/pulls/{$number}";
+        return $this->repos($path)."/pulls/{$number}";
     }
 
     /**
@@ -386,7 +393,7 @@ class Github extends BaseProvider
      */
     public function contentsRequest(string $path, string $filePath, ?string $ref = null): array
     {
-        return ["/repos/{$path}/contents/{$filePath}", $ref !== null ? ['ref' => $ref] : []];
+        return [$this->repos($path).'/contents/'.$this->fileSegments($filePath), $ref !== null ? ['ref' => $ref] : []];
     }
 
     /**
@@ -410,7 +417,7 @@ class Github extends BaseProvider
     {
         $this->guardSupported(Feature::Compare);
 
-        $data = $this->get("/repos/{$path}/compare/{$base}...{$head}")->json();
+        $data = $this->get($this->repos($path).'/compare/'.$this->refSegments('base ref', $base).'...'.$this->refSegments('head ref', $head))->json();
 
         /** @var list<ComparisonFile> $files */
         $files = array_map(fn (array $file): ComparisonFile => new ComparisonFile(
@@ -435,7 +442,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::ListContributors);
 
         return $this->paginate(
-            url: "/repos/{$path}/contributors",
+            url: $this->repos($path).'/contributors',
             query: [],
             page: 1,
             perPage: $perPage,
@@ -454,7 +461,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::Languages);
 
         /** @var array<string, int> $languages */
-        $languages = $this->get("/repos/{$path}/languages")->json();
+        $languages = $this->get($this->repos($path).'/languages')->json();
 
         return $languages;
     }
@@ -546,7 +553,7 @@ class Github extends BaseProvider
     private function sendRepositoryCreation(NewRepository $data): Repository
     {
         $response = $data->template !== null
-            ? $this->send('POST', "/repos/{$data->template}/generate", [
+            ? $this->send('POST', $this->repos($data->template).'/generate', [
                 // Omitted rather than sent as null: GitHub reads an absent `owner` as
                 // "the authenticated account", but an explicit null is a 422.
                 ...($data->owner !== null ? ['owner' => $data->owner] : []),
@@ -556,7 +563,7 @@ class Github extends BaseProvider
                 // The template's other branches are its history, not this repository's.
                 'include_all_branches' => false,
             ])
-            : $this->send('POST', $data->owner !== null ? "/orgs/{$data->owner}/repos" : '/user/repos', [
+            : $this->send('POST', $data->owner !== null ? '/orgs/'.$this->accountSegment('owner', $data->owner).'/repos' : '/user/repos', [
                 'name' => $data->name,
                 'private' => $data->private,
                 'description' => $data->description,
@@ -594,7 +601,7 @@ class Github extends BaseProvider
             return $repository;
         }
 
-        $this->send('POST', "/repos/{$repository->path}/branches/{$repository->defaultBranch}/rename", [
+        $this->send('POST', $this->repos($repository->path).'/branches/'.$this->refSegments('branch', $repository->defaultBranch).'/rename', [
             'new_name' => $data->defaultBranch,
         ]);
 
@@ -611,9 +618,9 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::CreateBranch);
         $this->guardAuthenticated();
 
-        $base = $this->get("/repos/{$path}/git/refs/heads/{$data->fromRef}")->json();
+        $base = $this->get($this->repos($path).'/git/refs/heads/'.$this->refSegments('base ref', $data->fromRef))->json();
 
-        $response = $this->send('POST', "/repos/{$path}/git/refs", [
+        $response = $this->send('POST', $this->repos($path).'/git/refs', [
             'ref' => "refs/heads/{$data->name}",
             'sha' => $base['object']['sha'],
         ]);
@@ -626,7 +633,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::CreateFile);
         $this->guardAuthenticated();
 
-        $response = $this->send('PUT', "/repos/{$path}/contents/{$data->path}", [
+        $response = $this->send('PUT', $this->repos($path).'/contents/'.$this->fileSegments($data->path), [
             'message' => $data->message,
             'content' => base64_encode($data->content),
             'branch' => $data->branch,
@@ -640,7 +647,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::UpdateFile);
         $this->guardAuthenticated();
 
-        $response = $this->send('PUT', "/repos/{$path}/contents/{$data->path}", [
+        $response = $this->send('PUT', $this->repos($path).'/contents/'.$this->fileSegments($data->path), [
             'message' => $data->message,
             'content' => base64_encode($data->content),
             'branch' => $data->branch,
@@ -655,7 +662,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::CreatePullRequest);
         $this->guardAuthenticated();
 
-        $response = $this->send('POST', "/repos/{$path}/pulls", [
+        $response = $this->send('POST', $this->repos($path).'/pulls', [
             'title' => $data->title,
             'head' => $data->head,
             'base' => $data->base,
@@ -677,7 +684,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::ClosePullRequest);
         $this->guardAuthenticated();
 
-        $response = $this->send('PATCH', "/repos/{$path}/pulls/{$number}", ['state' => 'closed']);
+        $response = $this->send('PATCH', $this->repos($path)."/pulls/{$number}", ['state' => 'closed']);
 
         return $this->mapper()->pullRequest($response->json());
     }
@@ -696,7 +703,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::ApprovePullRequest);
         $this->guardAuthenticated();
 
-        $response = $this->send('POST', "/repos/{$path}/pulls/{$number}/reviews", array_filter([
+        $response = $this->send('POST', $this->repos($path)."/pulls/{$number}/reviews", array_filter([
             'event' => 'APPROVE',
             'body' => $body,
         ], fn (?string $value): bool => $value !== null));
@@ -729,7 +736,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::ReviewPullRequest);
         $this->guardAuthenticated();
 
-        $response = $this->send('POST', "/repos/{$path}/pulls/{$number}/reviews", array_filter([
+        $response = $this->send('POST', $this->repos($path)."/pulls/{$number}/reviews", array_filter([
             'event' => $data->event->wire(),
             'body' => $data->body,
             'comments' => array_map($this->reviewComment(...), $data->comments),
@@ -780,14 +787,14 @@ class Github extends BaseProvider
 
         return new PullRequestReviews(
             reviews: $this->collectPages(
-                "/repos/{$path}/pulls/{$number}/reviews",
+                $this->repos($path)."/pulls/{$number}/reviews",
                 [],
                 $perPage,
                 $maxPages,
                 fn (array $review): PullRequestReview => $this->mapper()->pullRequestReview($review),
             ),
             comments: $this->collectPages(
-                "/repos/{$path}/pulls/{$number}/comments",
+                $this->repos($path)."/pulls/{$number}/comments",
                 [],
                 $perPage,
                 $maxPages,
@@ -821,7 +828,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::MergePullRequest);
         $this->guardAuthenticated();
 
-        $response = $this->send('PUT', "/repos/{$path}/pulls/{$number}/merge", array_filter([
+        $response = $this->send('PUT', $this->repos($path)."/pulls/{$number}/merge", array_filter([
             'merge_method' => $method->value,
             'sha' => $sha,
             'commit_title' => $title,
@@ -836,7 +843,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::CreateComment);
         $this->guardAuthenticated();
 
-        $response = $this->send('POST', "/repos/{$path}/issues/{$data->number}/comments", [
+        $response = $this->send('POST', $this->repos($path)."/issues/{$data->number}/comments", [
             'body' => $data->body,
         ]);
 
@@ -860,7 +867,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::CreateRelease);
         $this->guardAuthenticated();
 
-        $response = $this->send('POST', "/repos/{$path}/releases", [
+        $response = $this->send('POST', $this->repos($path).'/releases', [
             'tag_name' => $data->tagName,
             'name' => $data->name,
             'body' => $data->body,
@@ -876,7 +883,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::CreateTag);
         $this->guardAuthenticated();
 
-        $response = $this->send('POST', "/repos/{$path}/git/refs", [
+        $response = $this->send('POST', $this->repos($path).'/git/refs', [
             'ref' => "refs/tags/{$data->name}",
             'sha' => $data->ref,
         ]);
@@ -897,7 +904,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::CreateWebhook);
         $this->guardAuthenticated();
 
-        $response = $this->send('POST', "/repos/{$path}/hooks", [
+        $response = $this->send('POST', $this->repos($path).'/hooks', [
             'config' => array_filter([
                 'url' => $data->url,
                 'content_type' => 'json',
@@ -924,7 +931,7 @@ class Github extends BaseProvider
         $this->guardSupported(Feature::DeleteWebhook);
         $this->guardAuthenticated();
 
-        $this->send('DELETE', "/repos/{$path}/hooks/{$id}");
+        $this->send('DELETE', $this->repos($path).'/hooks/'.$this->webhookSegment($id));
     }
 
     /** @return list<Webhook> */
@@ -934,7 +941,7 @@ class Github extends BaseProvider
         $this->guardAuthenticated();
 
         /** @var list<array<string, mixed>> $hooks */
-        $hooks = $this->get("/repos/{$path}/hooks")->json();
+        $hooks = $this->get($this->repos($path).'/hooks')->json();
 
         return array_map(fn (array $hook): Webhook => new Webhook(
             provider: $this->providerName(),

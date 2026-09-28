@@ -55,7 +55,14 @@ final class WebhookCommand extends Command
         $deleteId = $this->option('delete');
 
         if (is_string($deleteId) && $deleteId !== '') {
-            $webhooks->delete($deleteId);
+            try {
+                $webhooks->delete($deleteId);
+            } catch (OutOfScopeException $exception) {
+                $this->error($exception->getMessage());
+
+                return self::FAILURE;
+            }
+
             $this->info("Deleted webhook [{$deleteId}].");
 
             return self::SUCCESS;

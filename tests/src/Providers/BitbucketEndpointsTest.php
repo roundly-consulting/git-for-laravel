@@ -49,19 +49,20 @@ it('creates a repository, pull request, comment and webhook', function () {
             'id' => 11, 'content' => ['raw' => 'nice'], 'user' => ['display_name' => 'John'],
             'links' => ['html' => ['href' => 'u']], 'created_on' => '2020-01-01T00:00:00Z',
         ]),
-        '*/hooks/9' => Http::response([], 204),
-        '*/hooks' => Http::response(['uuid' => '9', 'url' => 'https://hook', 'active' => true]),
+        '*/hooks/%7B*' => Http::response([], 204),
+        '*/hooks' => Http::response(['uuid' => '{0b1e7a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b}', 'url' => 'https://hook', 'active' => true]),
     ]);
 
     expect(bitbucket()->createRepository(new NewRepository('o/acme', true))->name)->toBe('acme')
         ->and(bitbucket()->createPullRequest('o/r', new NewPullRequest('PR', 'f', 'm'))->number)->toBe(5)
         ->and(bitbucket()->comment('o/r', new NewComment(5, 'nice')))->toBeInstanceOf(Comment::class)
         ->and(bitbucket()->createWebhook('o/r', new NewWebhook('https://hook', ['push'], 'secret')))
-        ->toBeInstanceOf(Webhook::class)->id->toBe('9');
+        ->toBeInstanceOf(Webhook::class)->id->toBe('{0b1e7a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b}');
 
-    bitbucket()->deleteWebhook('o/r', '9');
+    bitbucket()->deleteWebhook('o/r', '{0b1e7a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b}');
 
-    Http::assertSent(fn ($r): bool => $r->method() === 'DELETE' && str_contains($r->url(), '/hooks/9'));
+    Http::assertSent(fn ($r): bool => $r->method() === 'DELETE'
+        && str_ends_with($r->url(), '/hooks/%7B0b1e7a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b%7D'));
 });
 
 it('throws for unsupported read endpoints', function (string $method, array $args) {

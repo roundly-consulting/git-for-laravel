@@ -57,6 +57,8 @@ use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
+use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
+use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Http\ConditionalCache;
 use RoundlyConsulting\Git\Http\RateLimitStatusParser;
 use RoundlyConsulting\Git\Interfaces\Provider;
@@ -532,6 +534,45 @@ abstract class BaseProvider implements Provider
         $scheme = str($baseUrl)->before('://')->toString();
 
         return "{$scheme}://{$user}:{$secret}@{$host}/{$path}.git";
+    }
+
+    /**
+     * A repository path, guarded against leaving its scope and encoded segment by segment.
+     *
+     * Every driver builds its URLs through these helpers rather than interpolating a raw
+     * argument, so the flat driver methods get the same guarantee as the handles: a `..`
+     * — literal or percent-encoded, which the HTTP stack decodes and collapses just the
+     * same — never addresses another repository.
+     *
+     * @throws OutOfScopeException
+     */
+    protected function repositorySegments(string $path): string
+    {
+        return PathGuard::encode(PathGuard::repository($path));
+    }
+
+    /** @throws OutOfScopeException */
+    protected function fileSegments(string $filePath): string
+    {
+        return PathGuard::encode(PathGuard::file($filePath));
+    }
+
+    /** @throws OutOfScopeException */
+    protected function refSegments(string $label, string $ref): string
+    {
+        return PathGuard::encode(PathGuard::ref($label, $ref));
+    }
+
+    /** @throws OutOfScopeException */
+    protected function accountSegment(string $label, string $value): string
+    {
+        return rawurlencode(PathGuard::segment($label, $value));
+    }
+
+    /** @throws OutOfScopeException when the id is not in the shape this forge issues */
+    protected function webhookSegment(string $id): string
+    {
+        return rawurlencode(PathGuard::webhookId($this->providerName(), $id));
     }
 
     protected function featureNotSupported(): never

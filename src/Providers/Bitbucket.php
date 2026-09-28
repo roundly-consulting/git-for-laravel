@@ -78,14 +78,14 @@ class Bitbucket extends BaseProvider
 
     public function repository(string $path): Repository
     {
-        return $this->mapper()->repository($this->get("/2.0/repositories/{$path}")->json());
+        return $this->mapper()->repository($this->get($this->repositoryUrl($path))->json());
     }
 
     /** @return Page<string> */
     public function branches(string $path, int $perPage = 30): Page
     {
         return $this->paginate(
-            url: "/2.0/repositories/{$path}/refs/branches",
+            url: $this->repositoryUrl($path).'/refs/branches',
             query: [],
             page: 1,
             perPage: $perPage,
@@ -108,7 +108,7 @@ class Bitbucket extends BaseProvider
             }
 
             return $this->paginate(
-                url: "/2.0/repositories/{$path}/commits",
+                url: $this->repositoryUrl($path).'/commits',
                 query: $query,
                 page: $page,
                 perPage: $perPage,
@@ -120,7 +120,7 @@ class Bitbucket extends BaseProvider
 
     public function commit(string $path, string $commit): Commit
     {
-        return $this->mapper()->commit($this->get("/2.0/repositories/{$path}/commit/{$commit}")->json());
+        return $this->mapper()->commit($this->get($this->repositoryUrl($path).'/commit/'.$this->refSegments('commit ref', $commit))->json());
     }
 
     /** @return Page<PullRequest> */
@@ -129,7 +129,7 @@ class Bitbucket extends BaseProvider
         $this->guardSupported(Feature::ListPullRequests);
 
         return $this->paginate(
-            url: "/2.0/repositories/{$path}/pullrequests",
+            url: $this->repositoryUrl($path).'/pullrequests',
             query: ['state' => $this->mapState($state)],
             page: 1,
             perPage: $perPage,
@@ -142,19 +142,24 @@ class Bitbucket extends BaseProvider
     {
         $this->guardSupported(Feature::FindPullRequest);
 
-        return $this->mapper()->pullRequest($this->get("/2.0/repositories/{$path}/pullrequests/{$number}")->json());
+        return $this->mapper()->pullRequest($this->get($this->repositoryUrl($path)."/pullrequests/{$number}")->json());
     }
 
-    /** @internal the batch plumbing. */
+    /**
+     * `/2.0/repositories/{workspace}/{slug}`, the path guarded and encoded segment by
+     * segment — every Bitbucket URL starts here.
+     *
+     * @internal the batch plumbing.
+     */
     public function repositoryUrl(string $path): string
     {
-        return "/2.0/repositories/{$path}";
+        return '/2.0/repositories/'.$this->repositorySegments($path);
     }
 
     /** @internal the batch plumbing. */
     public function pullRequestUrl(string $path, int $number): string
     {
-        return "/2.0/repositories/{$path}/pullrequests/{$number}";
+        return $this->repositoryUrl($path)."/pullrequests/{$number}";
     }
 
     /**
@@ -187,7 +192,7 @@ class Bitbucket extends BaseProvider
 
         $path = $data->owner !== null ? "{$data->owner}/{$data->name}" : $data->name;
 
-        $response = $this->send('POST', "/2.0/repositories/{$path}", [
+        $response = $this->send('POST', $this->repositoryUrl($path), [
             'scm' => 'git',
             'is_private' => $data->private,
             'description' => $data->description,
@@ -201,7 +206,7 @@ class Bitbucket extends BaseProvider
         $this->guardSupported(Feature::CreatePullRequest);
         $this->guardAuthenticated();
 
-        $response = $this->send('POST', "/2.0/repositories/{$path}/pullrequests", [
+        $response = $this->send('POST', $this->repositoryUrl($path).'/pullrequests', [
             'title' => $data->title,
             'source' => ['branch' => ['name' => $data->head]],
             'destination' => ['branch' => ['name' => $data->base]],
@@ -216,7 +221,7 @@ class Bitbucket extends BaseProvider
         $this->guardSupported(Feature::CreateComment);
         $this->guardAuthenticated();
 
-        $response = $this->send('POST', "/2.0/repositories/{$path}/pullrequests/{$data->number}/comments", [
+        $response = $this->send('POST', $this->repositoryUrl($path)."/pullrequests/{$data->number}/comments", [
             'content' => ['raw' => $data->body],
         ]);
 
@@ -240,7 +245,7 @@ class Bitbucket extends BaseProvider
         $this->guardSupported(Feature::CreateWebhook);
         $this->guardAuthenticated();
 
-        $response = $this->send('POST', "/2.0/repositories/{$path}/hooks", [
+        $response = $this->send('POST', $this->repositoryUrl($path).'/hooks', [
             'description' => 'git-for-laravel',
             'url' => $data->url,
             'active' => $data->active,
@@ -264,7 +269,7 @@ class Bitbucket extends BaseProvider
         $this->guardSupported(Feature::DeleteWebhook);
         $this->guardAuthenticated();
 
-        $this->send('DELETE', "/2.0/repositories/{$path}/hooks/{$id}");
+        $this->send('DELETE', $this->repositoryUrl($path).'/hooks/'.$this->webhookSegment($id));
     }
 
     /** @return list<Webhook> */
@@ -274,7 +279,7 @@ class Bitbucket extends BaseProvider
         $this->guardAuthenticated();
 
         /** @var list<array<string, mixed>> $hooks */
-        $hooks = $this->get("/2.0/repositories/{$path}/hooks")->json('values') ?? [];
+        $hooks = $this->get($this->repositoryUrl($path).'/hooks')->json('values') ?? [];
 
         return array_map(fn (array $hook): Webhook => new Webhook(
             provider: $this->providerName(),

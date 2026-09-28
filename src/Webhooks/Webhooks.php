@@ -7,6 +7,8 @@ namespace RoundlyConsulting\Git\Webhooks;
 use InvalidArgumentException;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
+use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Interfaces\Provider;
 use SensitiveParameter;
 
@@ -55,9 +57,15 @@ final class Webhooks
         return $this->provider->listWebhooks($this->path);
     }
 
+    /**
+     * Delete one hook by the id the forge issued — numeric on GitHub and GitLab, a braced
+     * `{uuid}` on Bitbucket.
+     *
+     * @throws OutOfScopeException when the id has any other shape: it lands in a DELETE URL
+     */
     public function delete(string $id): void
     {
-        $this->provider->deleteWebhook($this->path, $id);
+        $this->provider->deleteWebhook($this->path, PathGuard::webhookId($this->provider->providerName(), $id));
     }
 
     public function deleteByUrl(string $url): bool
