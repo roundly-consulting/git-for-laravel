@@ -7,7 +7,7 @@ namespace RoundlyConsulting\Git\Commands;
 use Illuminate\Console\Command;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Enums\ProviderName;
-use RoundlyConsulting\Git\Registry;
+use RoundlyConsulting\Git\GitManager;
 
 final class ReposCommand extends Command
 {
@@ -15,7 +15,7 @@ final class ReposCommand extends Command
 
     protected $description = 'List the authenticated user\'s repositories for a provider';
 
-    public function handle(Registry $registry): int
+    public function handle(GitManager $git): int
     {
         $argument = $this->argument('provider');
         $name = is_string($argument) ? ProviderName::tryFrom($argument) : null;
@@ -26,7 +26,7 @@ final class ReposCommand extends Command
             return self::FAILURE;
         }
 
-        $provider = $registry->provider($name);
+        $provider = $git->provider($name);
 
         if (! $provider->isAuthenticated()) {
             $this->error("No credentials for [{$name->label()}]. Set the provider token in config (e.g. GITHUB_TOKEN).");

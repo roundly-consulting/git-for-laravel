@@ -7,7 +7,7 @@ return [
     |--------------------------------------------------------------------------
     |
     | Per-provider connection settings. Each provider may carry a default
-    | access token (so `Registry::github()` works with no explicit credential),
+    | access token (so `Git::github()` works with no explicit credential),
     | an optional webhook secret, request timeout, retry policy, client-side
     | rate limit, and extra HTTP options/headers.
     |
@@ -44,7 +44,7 @@ return [
             ],
 
             // GitHub App authentication (self-refreshing installation tokens).
-            // When `id` is set, `Registry::github()` mints installation tokens
+            // When `id` is set, `Git::github()` mints installation tokens
             // automatically. `private_key` may be a PEM string or a file path.
             'app' => [
                 'id' => env('GITHUB_APP_ID'),

@@ -42,7 +42,7 @@ final readonly class OauthToken extends Credentials implements RefreshableCreden
      * The split is what config is for. `client_id`, `client_secret`, and `token_url` are
      * static properties of the registered OAuth app — one per provider, the same for every
      * user — while the access and refresh tokens belong to whoever authorised. This is the
-     * `app.*` block's precedent: `Registry::github()` already mints installation tokens from
+     * `app.*` block's precedent: `Git::github()` already mints installation tokens from
      * config alone, because a GitHub App has no per-user half. OAuth cannot go that far (no
      * refresh token can live in config), so it stops exactly here.
      *

@@ -17,6 +17,8 @@ use SensitiveParameter;
  * The HMAC and the constant-time compare come from crypto-for-laravel; what
  * stays here is each provider's wire contract — which header carries the
  * signature, and how the expected value is framed.
+ *
+ * @internal host code verifies through `Git::verifyWebhook($provider, $request)`.
  */
 final class SignatureVerifier
 {

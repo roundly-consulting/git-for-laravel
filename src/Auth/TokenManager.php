@@ -18,6 +18,9 @@ use SensitiveParameter;
 /**
  * Mints and caches expiring access tokens for GitHub App installations and
  * OAuth credentials, refreshing them transparently when they lapse.
+ *
+ * @internal host code reads a live token off the credential itself —
+ *           `Git::credentials(ProviderName::Github)?->accessToken()` for a refreshable one.
  */
 final class TokenManager
 {

@@ -131,7 +131,7 @@
                 "RoundlyConsulting\\Git\\GitServiceProvider"
             ],
             "aliases": {
-                "Registry": "RoundlyConsulting\\Git\\Facades\\Registry"
+                "Git": "RoundlyConsulting\\Git\\Facades\\Git"
             }
         }
     },

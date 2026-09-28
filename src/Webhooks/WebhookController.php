@@ -11,11 +11,12 @@ use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Events\PullRequestEventReceived;
 use RoundlyConsulting\Git\Events\PushReceived;
 use RoundlyConsulting\Git\Events\WebhookReceived;
+use RoundlyConsulting\Git\GitManager;
 
 final class WebhookController
 {
     public function __construct(
-        private readonly SignatureVerifier $verifier,
+        private readonly GitManager $git,
     ) {}
 
     public function __invoke(Request $request, string $provider): JsonResponse
@@ -26,7 +27,7 @@ final class WebhookController
             return new JsonResponse(['message' => 'Unknown provider.'], 404);
         }
 
-        if (! $this->verifier->verify($name, $request)) {
+        if (! $this->git->verifyWebhook($name, $request)) {
             return new JsonResponse(['message' => 'Invalid signature.'], 403);
         }
 

@@ -4,7 +4,8 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git;
 
-use Illuminate\Support\Facades\Facade;
+use Illuminate\Contracts\Container\Container;
+use Illuminate\Http\Request;
 use Illuminate\Support\Traits\Macroable;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
 use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
@@ -17,11 +18,24 @@ use RoundlyConsulting\Git\Providers\BaseProvider;
 use RoundlyConsulting\Git\Providers\Bitbucket;
 use RoundlyConsulting\Git\Providers\Github;
 use RoundlyConsulting\Git\Providers\Gitlab;
-use RoundlyConsulting\Git\Testing\RegistryFake;
+use RoundlyConsulting\Git\Webhooks\SignatureVerifier;
 
-class Registry
+/**
+ * The root of the `Git` facade, and the injectable entry point for everyone who prefers
+ * constructor injection: `public function __construct(private GitManager $git) {}`.
+ *
+ * It hands out one authenticated driver per call — `github()`, `gitlab()`, `bitbucket()`,
+ * `provider()` — whose `repo()` and `installations()` handles carry the rest of the API.
+ * Not final on purpose: `Testing\GitFake` extends it, so an injected manager and the
+ * facade both see the fake once `Git::fake()` swapped it in.
+ */
+class GitManager
 {
     use Macroable;
+
+    public function __construct(
+        protected readonly Container $container,
+    ) {}
 
     public function github(?Credentials $credentials = null): Provider|Github
     {
@@ -34,9 +48,8 @@ class Registry
      *
      * This is what the `/app/**` endpoints need — chiefly looking an installation up to
      * verify it before trusting an id that arrived from a browser. Defaults to the
-     * configured app; a deployment with no app configured gets `null` credentials and
-     * therefore an unauthenticated provider, which fails the guard rather than
-     * silently falling back to the static token.
+     * configured app; a deployment with no app configured fails loudly, naming the
+     * missing key, rather than silently falling back to the static token.
      *
      * Typed like `github()` — `Provider|Github` — so an IDE completes the GitHub-only
      * surface on the return of the method whose entire purpose is GitHub App endpoints.
@@ -60,6 +73,9 @@ class Registry
     }
 
     /**
+     * A driver by enum, driver class-string or config key, authenticated with the given
+     * credential — or with the configured one ({@see Credentials()}) when none is given.
+     *
      * @param  ProviderName|class-string<Provider>|string  $provider
      */
     public function provider(ProviderName|string $provider, ?Credentials $credentials = null): Provider
@@ -67,9 +83,9 @@ class Registry
         $name = $this->resolveProviderName($provider);
 
         /** @var Provider $instance */
-        $instance = resolve($name->providerClass());
+        $instance = $this->container->make($name->providerClass());
 
-        $credentials ??= $this->defaultCredentials($name);
+        $credentials ??= $this->credentials($name);
 
         if (! $credentials) {
             return $instance;
@@ -81,6 +97,7 @@ class Registry
     /**
      * The capability matrix for a provider without authenticating it.
      *
+     * @param  ProviderName|class-string<Provider>|string  $provider
      * @return array<string, bool>
      */
     public function capabilities(ProviderName|string $provider): array
@@ -88,19 +105,64 @@ class Registry
         $name = $this->resolveProviderName($provider);
 
         /** @var BaseProvider $instance */
-        $instance = resolve($name->providerClass());
+        $instance = $this->container->make($name->providerClass());
 
         return $instance->capabilities();
     }
 
-    public function fake(): RegistryFake
+    /**
+     * The credential a provider gets when the caller passes none — the configured GitHub
+     * App installation (`app.id` + `app.installation_id` + `app.private_key`) first, then
+     * the static `token`, else `null` (an unauthenticated provider).
+     *
+     * Public so a host can hand the SAME credential to something outside this package —
+     * a `git clone` subprocess, say, via `cloneUrl()` — or read its live access token:
+     * a refreshable one answers `accessToken()`, minting and caching as needed.
+     *
+     * @param  ProviderName|class-string<Provider>|string  $provider
+     */
+    public function credentials(ProviderName|string $provider): ?Credentials
     {
-        $fake = new RegistryFake;
+        $key = $this->resolveProviderName($provider)->key();
 
-        app()->instance(self::class, $fake);
-        Facade::clearResolvedInstance(self::class);
+        $appId = config("git.providers.{$key}.app.id");
 
-        return $fake;
+        if (is_string($appId) && $appId !== '') {
+            $installationId = config("git.providers.{$key}.app.installation_id");
+            $privateKey = config("git.providers.{$key}.app.private_key");
+
+            if (is_string($installationId) && $installationId !== '' && is_string($privateKey) && $privateKey !== '') {
+                return GithubAppToken::for(
+                    appId: $appId,
+                    installationId: $installationId,
+                    privateKey: $privateKey,
+                    apiBaseUrl: is_string($url = config("git.providers.{$key}.url")) ? $url : null,
+                );
+            }
+        }
+
+        $token = config("git.providers.{$key}.token");
+
+        if (! is_string($token) || $token === '') {
+            return null;
+        }
+
+        return Token::from($token);
+    }
+
+    /**
+     * Whether an inbound webhook really came from the provider — the check the package's
+     * own webhook route runs, for a host that owns its route instead.
+     *
+     * Verified against `git.providers.<key>.webhook_secret`; no configured secret means
+     * nothing verifies (`false`), never "everything does".
+     *
+     * @param  ProviderName|class-string<Provider>|string  $provider
+     */
+    public function verifyWebhook(ProviderName|string $provider, Request $request): bool
+    {
+        return $this->container->make(SignatureVerifier::class)
+            ->verify($this->resolveProviderName($provider), $request);
     }
 
     /**
@@ -132,35 +194,6 @@ class Registry
             privateKey: $privateKey,
             apiBaseUrl: is_string($url = config("git.providers.{$key}.url")) ? $url : null,
         );
-    }
-
-    protected function defaultCredentials(ProviderName $provider): ?Credentials
-    {
-        $key = $provider->key();
-
-        $appId = config("git.providers.{$key}.app.id");
-
-        if (is_string($appId) && $appId !== '') {
-            $installationId = config("git.providers.{$key}.app.installation_id");
-            $privateKey = config("git.providers.{$key}.app.private_key");
-
-            if (is_string($installationId) && $installationId !== '' && is_string($privateKey) && $privateKey !== '') {
-                return GithubAppToken::for(
-                    appId: $appId,
-                    installationId: $installationId,
-                    privateKey: $privateKey,
-                    apiBaseUrl: is_string($url = config("git.providers.{$key}.url")) ? $url : null,
-                );
-            }
-        }
-
-        $token = config("git.providers.{$key}.token");
-
-        if (! is_string($token) || $token === '') {
-            return null;
-        }
-
-        return Token::from($token);
     }
 
     /**

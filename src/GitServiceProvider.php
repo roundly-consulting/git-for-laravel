@@ -44,7 +44,7 @@ final class GitServiceProvider extends PackageServiceProvider
     {
         parent::register();
 
-        $this->app->singleton(Registry::class);
+        $this->app->singleton(GitManager::class);
 
         $this->app->singleton(GithubMapper::class);
         $this->app->singleton(GitlabMapper::class);

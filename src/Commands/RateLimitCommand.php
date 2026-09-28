@@ -6,7 +6,7 @@ namespace RoundlyConsulting\Git\Commands;
 
 use Illuminate\Console\Command;
 use RoundlyConsulting\Git\Enums\ProviderName;
-use RoundlyConsulting\Git\Registry;
+use RoundlyConsulting\Git\GitManager;
 
 final class RateLimitCommand extends Command
 {
@@ -14,7 +14,7 @@ final class RateLimitCommand extends Command
 
     protected $description = 'Show the current rate-limit status for a provider';
 
-    public function handle(Registry $registry): int
+    public function handle(GitManager $git): int
     {
         $argument = $this->argument('provider');
         $name = is_string($argument) ? ProviderName::tryFrom($argument) : null;
@@ -25,7 +25,7 @@ final class RateLimitCommand extends Command
             return self::FAILURE;
         }
 
-        $provider = $registry->provider($name);
+        $provider = $git->provider($name);
 
         if (! $provider->isAuthenticated()) {
             $this->error("No credentials for [{$name->label()}]. Set the provider token in config (e.g. GITHUB_TOKEN).");
