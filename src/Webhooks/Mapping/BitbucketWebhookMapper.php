@@ -57,15 +57,28 @@ final class BitbucketWebhookMapper implements WebhookPayloadMapper
         return $this->resources->repository($payload['repository']);
     }
 
-    /** @param array<string, mixed> $payload */
+    /**
+     * The pushed ref, fully qualified — `refs/heads/main`, `refs/tags/v1.0` — as GitHub
+     * and GitLab send it. Bitbucket sends the bare name plus a `type`; a deleted ref has
+     * only its `old` side. A type git has no namespace for is returned bare.
+     *
+     * @param  array<string, mixed>  $payload
+     */
     public function ref(array $payload): ?string
     {
         foreach ($this->changes($payload) as $change) {
-            $name = $change['new']['name'] ?? null;
+            $side = is_array($change['new'] ?? null) ? $change['new'] : ($change['old'] ?? null);
+            $name = is_array($side) ? ($side['name'] ?? null) : null;
 
-            if (is_string($name)) {
-                return $name;
+            if (! is_string($name)) {
+                continue;
             }
+
+            return match ($side['type'] ?? null) {
+                'branch' => "refs/heads/{$name}",
+                'tag', 'annotated_tag' => "refs/tags/{$name}",
+                default => $name,
+            };
         }
 
         return null;

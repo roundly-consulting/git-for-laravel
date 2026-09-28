@@ -49,7 +49,7 @@ it('maps a bitbucket push and pull request', function () {
 
     expect($push->commits()[0]->sha)->toBe('f7591a13')
         ->and($push->commits()[0]->author->name)->toBe('Brodie Rao')
-        ->and($push->ref())->toBe('main')
+        ->and($push->ref())->toBe('refs/heads/main')
         ->and($push->pusher()?->name)->toBe('Brodie Rao')
         ->and($pr->pullRequest()?->number)->toBe(12)
         ->and($pr->pullRequest()?->state)->toBe(ResourceState::Open);
@@ -86,3 +86,14 @@ it('returns empty or null for payloads without the nested resource', function ()
         ->and($bitbucket->ref())->toBeNull()
         ->and($bitbucket->pusher())->toBeNull();
 });
+
+it('qualifies a bitbucket ref the way github and gitlab send it', function (array $change, ?string $ref) {
+    $event = new WebhookEvent(ProviderName::Bitbucket, 'repo:push', ['push' => ['changes' => [$change]]]);
+
+    expect($event->ref())->toBe($ref);
+})->with([
+    'branch' => [['new' => ['type' => 'branch', 'name' => 'release/1.0']], 'refs/heads/release/1.0'],
+    'tag' => [['new' => ['type' => 'tag', 'name' => 'v1.0.0']], 'refs/tags/v1.0.0'],
+    'deleted branch' => [['new' => null, 'old' => ['type' => 'branch', 'name' => 'gone']], 'refs/heads/gone'],
+    'unknown type' => [['new' => ['type' => 'bookmark', 'name' => 'x']], 'x'],
+]);
