@@ -8,16 +8,20 @@ use Illuminate\Http\Client\Response;
 use RoundlyConsulting\Git\Dto\FileContent;
 use RoundlyConsulting\Git\Dto\PullRequest;
 use RoundlyConsulting\Git\Dto\Repository;
-use RoundlyConsulting\Git\Interfaces\Provider;
+use RoundlyConsulting\Git\Providers\BaseProvider;
 
 /**
  * Fluent concurrent-fetch surface over a single provider. Each call fans the
  * inputs out through one (or more, when chunked) `Http::pool()` round trip and
  * returns a keyed {@see BatchResult}.
+ *
+ * Typed to `BaseProvider`, not the `Provider` contract: it drives the driver's
+ * `@internal` URL builders and mappers, which are deliberately not part of the contract.
+ * Host code gets one from `Git::github()->batch()`.
  */
 class Batch
 {
-    public function __construct(private readonly Provider $provider) {}
+    public function __construct(private readonly BaseProvider $provider) {}
 
     /**
      * @param  list<string>  $paths

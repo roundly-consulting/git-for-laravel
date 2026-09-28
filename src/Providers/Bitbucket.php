@@ -145,11 +145,13 @@ class Bitbucket extends BaseProvider
         return $this->mapper()->pullRequest($this->get("/2.0/repositories/{$path}/pullrequests/{$number}")->json());
     }
 
+    /** @internal the batch plumbing. */
     public function repositoryUrl(string $path): string
     {
         return "/2.0/repositories/{$path}";
     }
 
+    /** @internal the batch plumbing. */
     public function pullRequestUrl(string $path, int $number): string
     {
         return "/2.0/repositories/{$path}/pullrequests/{$number}";

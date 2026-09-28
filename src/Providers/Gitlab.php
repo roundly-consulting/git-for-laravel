@@ -240,22 +240,29 @@ class Gitlab extends BaseProvider
         return $this->mapFileContent($this->get($url, $query)->json());
     }
 
+    /** @internal the batch plumbing. */
     public function repositoryUrl(string $path): string
     {
         return '/api/v4/projects/'.$this->encode($path);
     }
 
+    /** @internal the batch plumbing. */
     public function languagesUrl(string $path): string
     {
         return '/api/v4/projects/'.$this->encode($path).'/languages';
     }
 
+    /** @internal the batch plumbing. */
     public function pullRequestUrl(string $path, int $number): string
     {
         return '/api/v4/projects/'.$this->encode($path)."/merge_requests/{$number}";
     }
 
-    /** @return array{0: string, 1: array<string, mixed>} */
+    /**
+     * @internal the batch plumbing.
+     *
+     * @return array{0: string, 1: array<string, mixed>}
+     */
     public function contentsRequest(string $path, string $filePath, ?string $ref = null): array
     {
         return [
@@ -265,6 +272,8 @@ class Gitlab extends BaseProvider
     }
 
     /**
+     * @internal the batch plumbing.
+     *
      * @param  array<string, mixed>  $raw
      * @return array<string, int>
      */
@@ -276,7 +285,11 @@ class Gitlab extends BaseProvider
         return $languages;
     }
 
-    /** @param array<string, mixed> $raw */
+    /**
+     * @internal the batch plumbing.
+     *
+     * @param  array<string, mixed>  $raw
+     */
     public function mapFileContent(array $raw): FileContent
     {
         return new FileContent(

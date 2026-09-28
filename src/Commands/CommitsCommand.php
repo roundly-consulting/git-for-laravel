@@ -7,11 +7,9 @@ namespace RoundlyConsulting\Git\Commands;
 use Illuminate\Console\Command;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Enums\ProviderName;
-use RoundlyConsulting\Git\Providers\Bitbucket;
-use RoundlyConsulting\Git\Providers\Github;
-use RoundlyConsulting\Git\Providers\Gitlab;
+use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
+use RoundlyConsulting\Git\GitManager;
 use RoundlyConsulting\Git\Query\CommitQuery;
-use RoundlyConsulting\Git\Registry;
 
 final class CommitsCommand extends Command
 {
@@ -19,7 +17,7 @@ final class CommitsCommand extends Command
 
     protected $description = 'List commits for a repository path';
 
-    public function handle(Registry $registry): int
+    public function handle(GitManager $git): int
     {
         $argument = $this->argument('provider');
         $name = is_string($argument) ? ProviderName::tryFrom($argument) : null;
@@ -30,7 +28,7 @@ final class CommitsCommand extends Command
             return self::FAILURE;
         }
 
-        $provider = $registry->provider($name);
+        $provider = $git->provider($name);
 
         if (! $provider->isAuthenticated()) {
             $this->error("No credentials for [{$name->label()}]. Set the provider token in config (e.g. GITHUB_TOKEN).");
@@ -38,14 +36,15 @@ final class CommitsCommand extends Command
             return self::FAILURE;
         }
 
-        if (! $provider instanceof Github && ! $provider instanceof Gitlab && ! $provider instanceof Bitbucket) {
-            $this->error('Provider does not support listing commits.');
+        $path = $this->argument('path');
+
+        try {
+            $query = $provider->repo(is_string($path) ? $path : '')->commits();
+        } catch (OutOfScopeException $exception) {
+            $this->error($exception->getMessage());
 
             return self::FAILURE;
         }
-
-        $path = $this->argument('path');
-        $query = $provider->commits(is_string($path) ? $path : '');
 
         $this->applyFilters($query);
 

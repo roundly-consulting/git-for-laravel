@@ -17,7 +17,7 @@ final class BatchFake extends Batch
     /** @param array<string, BatchResult<mixed>> $seeded */
     public function __construct(
         private readonly ProviderName $name,
-        private readonly RegistryFake $registry,
+        private readonly GitFake $git,
         private readonly array $seeded = [],
     ) {}
 
@@ -63,7 +63,7 @@ final class BatchFake extends Batch
      */
     private function dispatch(string $method, array $arguments): BatchResult
     {
-        $this->registry->record($this->name, new RecordedCall("batch.{$method}", array_values($arguments)));
+        $this->git->record($this->name, new RecordedCall("batch.{$method}", array_values($arguments)));
 
         return $this->seeded[$method] ?? new BatchResult([], []);
     }

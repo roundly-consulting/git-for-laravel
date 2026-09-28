@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Testing;
 
-use Illuminate\Http\Client\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\LazyCollection;
 use RoundlyConsulting\Git\Batch\Batch;
-use RoundlyConsulting\Git\Batch\BatchError;
 use RoundlyConsulting\Git\Batch\BatchResult;
+use RoundlyConsulting\Git\Concerns\ProvidesHandles;
 use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
 use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Comment;
@@ -51,9 +50,7 @@ use RoundlyConsulting\Git\Enums\ResourceState;
 use RoundlyConsulting\Git\Enums\ReviewEvent;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\Interfaces\Provider;
-use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
-use RoundlyConsulting\Git\Webhooks\Webhooks;
 use RuntimeException;
 
 /**
@@ -76,6 +73,8 @@ use RuntimeException;
  */
 final class ProviderFake implements Provider
 {
+    use ProvidesHandles;
+
     /** @var array<string, mixed> */
     private array $seeded = [];
 
@@ -84,7 +83,7 @@ final class ProviderFake implements Provider
 
     public function __construct(
         private readonly ProviderName $name,
-        private readonly RegistryFake $registry,
+        private readonly GitFake $git,
     ) {}
 
     /** @param BatchResult<mixed> $result */
@@ -374,9 +373,9 @@ final class ProviderFake implements Provider
      *
      * @return Page<Installation>
      */
-    public function installations(int $perPage = 30): Page
+    public function listInstallations(int $perPage = 30): Page
     {
-        $this->record('installations', [$perPage]);
+        $this->record('listInstallations', [$perPage]);
 
         /** @var list<Installation> $items */
         $items = $this->seeded['installations']
@@ -477,7 +476,7 @@ final class ProviderFake implements Provider
     {
         $this->record('pullRequest', [$path, $number]);
 
-        return $this->seededPullRequest();
+        return $this->seededPullRequest($number);
     }
 
     /** @return Page<Issue> */
@@ -854,65 +853,7 @@ final class ProviderFake implements Provider
 
     public function batch(): Batch
     {
-        return new BatchFake($this->name, $this->registry, $this->seededBatches);
-    }
-
-    public function webhooks(string $path): Webhooks
-    {
-        return new Webhooks($this, $path);
-    }
-
-    /**
-     * @param  array<string, array{url: string, query: array<string, mixed>}>  $specs
-     * @return array<string, Response|BatchError>
-     */
-    public function runPool(array $specs): array
-    {
-        return [];
-    }
-
-    public function mapResource(): ResourceMapper
-    {
-        throw new RuntimeException('mapResource() is not available on the provider fake.');
-    }
-
-    public function repositoryUrl(string $path): string
-    {
-        return $path;
-    }
-
-    public function languagesUrl(string $path): string
-    {
-        return $path;
-    }
-
-    public function pullRequestUrl(string $path, int $number): string
-    {
-        return "{$path}#{$number}";
-    }
-
-    /** @return array{0: string, 1: array<string, mixed>} */
-    public function contentsRequest(string $path, string $filePath, ?string $ref = null): array
-    {
-        return [$filePath, []];
-    }
-
-    /**
-     * @param  array<string, mixed>  $raw
-     * @return array<string, int>
-     */
-    public function normalizeLanguages(array $raw): array
-    {
-        /** @var array<string, int> $languages */
-        $languages = array_map(fn (mixed $value): int => (int) $value, $raw);
-
-        return $languages;
-    }
-
-    /** @param array<string, mixed> $raw */
-    public function mapFileContent(array $raw): FileContent
-    {
-        throw new RuntimeException('mapFileContent() is not available on the provider fake.');
+        return new BatchFake($this->name, $this->git, $this->seededBatches);
     }
 
     public function createWebhook(string $path, NewWebhook $data): Webhook
@@ -1027,6 +968,6 @@ final class ProviderFake implements Provider
     /** @param list<mixed> $arguments */
     private function record(string $method, array $arguments): void
     {
-        $this->registry->record($this->name, new RecordedCall($method, $arguments));
+        $this->git->record($this->name, new RecordedCall($method, $arguments));
     }
 }

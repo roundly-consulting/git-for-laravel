@@ -18,6 +18,7 @@ use RoundlyConsulting\Crypto\Hash\Digest;
 use RoundlyConsulting\Git\Batch\Batch;
 use RoundlyConsulting\Git\Batch\BatchError;
 use RoundlyConsulting\Git\Concerns\InteractsWithRateLimits;
+use RoundlyConsulting\Git\Concerns\ProvidesHandles;
 use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
@@ -61,12 +62,12 @@ use RoundlyConsulting\Git\Http\RateLimitStatusParser;
 use RoundlyConsulting\Git\Interfaces\Provider;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
-use RoundlyConsulting\Git\Webhooks\Webhooks;
 use Throwable;
 
 abstract class BaseProvider implements Provider
 {
     use InteractsWithRateLimits;
+    use ProvidesHandles;
 
     protected ?Credentials $authentication = null;
 
@@ -203,27 +204,33 @@ abstract class BaseProvider implements Provider
         return new Batch($this);
     }
 
+    /** @internal the batch plumbing — {@see Batch} maps pooled responses through it. */
     public function mapResource(): ResourceMapper
     {
         return $this->mapper();
     }
 
+    /** @internal the batch plumbing. */
     public function repositoryUrl(string $path): string
     {
         $this->featureNotSupported();
     }
 
+    /** @internal the batch plumbing. */
     public function languagesUrl(string $path): string
     {
         $this->featureNotSupported();
     }
 
+    /** @internal the batch plumbing. */
     public function pullRequestUrl(string $path, int $number): string
     {
         $this->featureNotSupported();
     }
 
     /**
+     * @internal the batch plumbing.
+     *
      * @return array{0: string, 1: array<string, mixed>}
      */
     public function contentsRequest(string $path, string $filePath, ?string $ref = null): array
@@ -232,6 +239,8 @@ abstract class BaseProvider implements Provider
     }
 
     /**
+     * @internal the batch plumbing.
+     *
      * @param  array<string, mixed>  $raw
      * @return array<string, int>
      */
@@ -243,7 +252,11 @@ abstract class BaseProvider implements Provider
         return $languages;
     }
 
-    /** @param array<string, mixed> $raw */
+    /**
+     * @internal the batch plumbing.
+     *
+     * @param  array<string, mixed>  $raw
+     */
     public function mapFileContent(array $raw): FileContent
     {
         $this->featureNotSupported();
@@ -305,7 +318,7 @@ abstract class BaseProvider implements Provider
     }
 
     /** @return Page<Installation> */
-    public function installations(int $perPage = 30): Page
+    public function listInstallations(int $perPage = 30): Page
     {
         $this->featureNotSupported();
     }
@@ -479,11 +492,6 @@ abstract class BaseProvider implements Provider
         $this->featureNotSupported();
     }
 
-    public function webhooks(string $path): Webhooks
-    {
-        return new Webhooks($this, $path);
-    }
-
     /**
      * The secret to put in a clone URL for a credential.
      *
@@ -614,6 +622,8 @@ abstract class BaseProvider implements Provider
      * Each pooled request carries the same (refreshable) authentication as the
      * single-request path. Pooled GETs bypass the ETag conditional cache. Input
      * larger than `git.batch.concurrency` is chunked into sequential pools.
+     *
+     * @internal the batch plumbing — host code calls `batch()`.
      *
      * @param  array<string, array{url: string, query: array<string, mixed>}>  $specs
      * @return array<string, Response|BatchError>

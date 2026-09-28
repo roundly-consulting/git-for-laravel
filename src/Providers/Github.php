@@ -168,7 +168,7 @@ class Github extends BaseProvider
      *
      * @return Page<Installation>
      */
-    public function installations(int $perPage = 30): Page
+    public function listInstallations(int $perPage = 30): Page
     {
         $this->guardSupported(Feature::ListInstallations);
         $this->guardCredential(GithubApp::class);
@@ -361,28 +361,39 @@ class Github extends BaseProvider
         return $this->mapFileContent($response->json());
     }
 
+    /** @internal the batch plumbing. */
     public function repositoryUrl(string $path): string
     {
         return "/repos/{$path}";
     }
 
+    /** @internal the batch plumbing. */
     public function languagesUrl(string $path): string
     {
         return "/repos/{$path}/languages";
     }
 
+    /** @internal the batch plumbing. */
     public function pullRequestUrl(string $path, int $number): string
     {
         return "/repos/{$path}/pulls/{$number}";
     }
 
-    /** @return array{0: string, 1: array<string, mixed>} */
+    /**
+     * @internal the batch plumbing.
+     *
+     * @return array{0: string, 1: array<string, mixed>}
+     */
     public function contentsRequest(string $path, string $filePath, ?string $ref = null): array
     {
         return ["/repos/{$path}/contents/{$filePath}", $ref !== null ? ['ref' => $ref] : []];
     }
 
-    /** @param array<string, mixed> $raw */
+    /**
+     * @internal the batch plumbing.
+     *
+     * @param  array<string, mixed>  $raw
+     */
     public function mapFileContent(array $raw): FileContent
     {
         return new FileContent(

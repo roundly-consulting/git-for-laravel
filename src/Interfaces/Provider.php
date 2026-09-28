@@ -4,10 +4,8 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Interfaces;
 
-use Illuminate\Http\Client\Response;
 use Illuminate\Support\LazyCollection;
 use RoundlyConsulting\Git\Batch\Batch;
-use RoundlyConsulting\Git\Batch\BatchError;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Comparison;
@@ -40,14 +38,21 @@ use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
-use RoundlyConsulting\Git\Mapping\ResourceMapper;
+use RoundlyConsulting\Git\Handles\InstallationsHandle;
+use RoundlyConsulting\Git\Handles\RepositoryHandle;
 use RoundlyConsulting\Git\Query\CommitQuery;
-use RoundlyConsulting\Git\Webhooks\Webhooks;
 
 /**
  * Everything a forge driver answers.
  *
- * The rule for this file: if `BaseProvider` implements it, it belongs HERE. A method
+ * Two layers live here. The flat, path-taking methods (`pullRequests($path, …)`,
+ * `mergePullRequest($path, $number, …)`) are the DRIVER contract — what a custom driver
+ * implements and `Testing\ProviderFake` doubles. Host code reads better through the
+ * handles built on top of them, `repo($path)` and `installations()`, which fill the path
+ * in and refuse anything that would step outside it; both layers run the same code.
+ *
+ * The rule for this file: if `BaseProvider` implements it publicly and it is not tagged
+ * `@internal` (the batch plumbing), it belongs HERE. A method
  * that lives only on the concrete driver is unreachable through the `Provider` type
  * without an `instanceof`, is not covered by the `Testing\ProviderFake` double,
  * and — when a driver forgets to implement it — answers PHP's fatal "undefined method"
@@ -82,33 +87,14 @@ interface Provider
 
     public function batch(): Batch;
 
-    public function webhooks(string $path): Webhooks;
-
     /**
-     * @param  array<string, array{url: string, query: array<string, mixed>}>  $specs
-     * @return array<string, Response|BatchError>
+     * A handle on one repository — every repository-scoped method below with the path
+     * filled in: `->repo('acme/app')->pullRequest(12)->merge()`.
      */
-    public function runPool(array $specs): array;
+    public function repo(string|Repository $repository): RepositoryHandle;
 
-    public function mapResource(): ResourceMapper;
-
-    public function repositoryUrl(string $path): string;
-
-    public function languagesUrl(string $path): string;
-
-    public function pullRequestUrl(string $path, int $number): string;
-
-    /** @return array{0: string, 1: array<string, mixed>} */
-    public function contentsRequest(string $path, string $filePath, ?string $ref = null): array;
-
-    /**
-     * @param  array<string, mixed>  $raw
-     * @return array<string, int>
-     */
-    public function normalizeLanguages(array $raw): array;
-
-    /** @param array<string, mixed> $raw */
-    public function mapFileContent(array $raw): FileContent;
+    /** The app-installation lookups: `Git::githubApp()->installations()->find($id)`. */
+    public function installations(): InstallationsHandle;
 
     public function createWebhook(string $path, NewWebhook $data): Webhook;
 
@@ -241,7 +227,7 @@ interface Provider
      * The repositories reachable by the credential's own installation.
      *
      * On the shared interface (rather than only on the GitHub provider) so a host
-     * application can drive it through `Registry::fake()`. Providers without app
+     * application can drive it through `Git::fake()`. Providers without app
      * installations answer `FeatureNotSupportedException`.
      *
      * @return Page<Repository>
@@ -257,14 +243,14 @@ interface Provider
     /**
      * Every account this app is installed on, looked up as the app itself.
      *
-     * On the shared interface for the same reason `installation()` is: `Registry::githubApp()`
+     * On the shared interface for the same reason `installation()` is: `Git::githubApp()`
      * is typed to THIS interface, so a method only the concrete GitHub provider declares is
      * unreachable without an `instanceof` narrowing — and a provider without app installations
      * answers a fatal "undefined method" instead of `FeatureNotSupportedException`.
      *
      * @return Page<Installation>
      */
-    public function installations(int $perPage = 30): Page;
+    public function listInstallations(int $perPage = 30): Page;
 
     /** This app's installation on an organization, looked up as the app itself. */
     public function organizationInstallation(string $organization): Installation;
@@ -276,7 +262,7 @@ interface Provider
      * Where to send a human to install this provider's app, carrying `state`.
      *
      * On the shared interface for the same reason the two above are: it is the entry point
-     * of a consumer's redirect flow, so it must be drivable through `Registry::fake()` and
+     * of a consumer's redirect flow, so it must be drivable through `Git::fake()` and
      * callable on the `Provider` type without an `instanceof` narrowing at every call site.
      */
     public function installUrl(?string $state = null): string;

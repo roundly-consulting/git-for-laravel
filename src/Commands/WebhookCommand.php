@@ -7,7 +7,8 @@ namespace RoundlyConsulting\Git\Commands;
 use Illuminate\Console\Command;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\ProviderName;
-use RoundlyConsulting\Git\Registry;
+use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
+use RoundlyConsulting\Git\GitManager;
 
 final class WebhookCommand extends Command
 {
@@ -15,7 +16,7 @@ final class WebhookCommand extends Command
 
     protected $description = 'Register, list, or delete a repository webhook for a provider';
 
-    public function handle(Registry $registry): int
+    public function handle(GitManager $git): int
     {
         $argument = $this->argument('provider');
         $name = is_string($argument) ? ProviderName::tryFrom($argument) : null;
@@ -26,7 +27,7 @@ final class WebhookCommand extends Command
             return self::FAILURE;
         }
 
-        $provider = $registry->provider($name);
+        $provider = $git->provider($name);
 
         if (! $provider->isAuthenticated()) {
             $this->error("No credentials for [{$name->label()}]. Set the provider token in config (e.g. GITHUB_TOKEN).");
@@ -36,7 +37,14 @@ final class WebhookCommand extends Command
 
         $repoArgument = $this->argument('repo');
         $repo = is_string($repoArgument) ? $repoArgument : '';
-        $webhooks = $provider->webhooks($repo);
+
+        try {
+            $webhooks = $provider->repo($repo)->webhooks();
+        } catch (OutOfScopeException $exception) {
+            $this->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
 
         if ($this->option('list')) {
             $this->renderList($webhooks->all());
