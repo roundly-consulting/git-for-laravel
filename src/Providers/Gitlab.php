@@ -441,40 +441,47 @@ class Gitlab extends BaseProvider
         return $response->json('name');
     }
 
+    /**
+     * Create a file, as one commit — through the Commits API rather than the Files API.
+     *
+     * The Files API answers a write with `{file_path, branch}` and nothing else, so the
+     * commit it made cannot be returned; the Commits API answers with the commit itself.
+     * Content goes base64-encoded, so binary content survives the JSON body.
+     */
     public function createFile(string $path, NewFile $data): Commit
     {
         $this->guardSupported(Feature::CreateFile);
         $this->guardAuthenticated();
 
-        $response = $this->send(
-            'POST',
-            '/api/v4/projects/'.$this->encode($path).'/repository/files/'.$this->encodeWhole(PathGuard::file($data->path)),
-            [
-                'branch' => $data->branch,
-                'content' => $data->content,
-                'commit_message' => $data->message,
-            ],
-        );
-
-        return $this->createCommitFromFileResponse($response, $data->message);
+        return $this->commitFile($path, 'create', $data->path, $data->content, $data->message, $data->branch);
     }
 
+    /**
+     * Update a file, as one commit. GitLab has no blob-sha precondition, so the
+     * `UpdatedFile::$sha` GitHub checks is not sent.
+     */
     public function updateFile(string $path, UpdatedFile $data): Commit
     {
         $this->guardSupported(Feature::UpdateFile);
         $this->guardAuthenticated();
 
-        $response = $this->send(
-            'PUT',
-            '/api/v4/projects/'.$this->encode($path).'/repository/files/'.$this->encodeWhole(PathGuard::file($data->path)),
-            [
-                'branch' => $data->branch,
-                'content' => $data->content,
-                'commit_message' => $data->message,
-            ],
-        );
+        return $this->commitFile($path, 'update', $data->path, $data->content, $data->message, $data->branch);
+    }
 
-        return $this->createCommitFromFileResponse($response, $data->message);
+    private function commitFile(string $path, string $action, string $filePath, string $content, string $message, string $branch): Commit
+    {
+        $response = $this->send('POST', '/api/v4/projects/'.$this->encode($path).'/repository/commits', [
+            'branch' => $branch,
+            'commit_message' => $message,
+            'actions' => [[
+                'action' => $action,
+                'file_path' => PathGuard::file($filePath),
+                'content' => base64_encode($content),
+                'encoding' => 'base64',
+            ]],
+        ]);
+
+        return $this->mapper()->commit($response->json());
     }
 
     public function createPullRequest(string $path, NewPullRequest $data): PullRequest
@@ -779,20 +786,5 @@ class Gitlab extends BaseProvider
             'closed' => 'closed',
             default => $state,
         };
-    }
-
-    protected function createCommitFromFileResponse(Response $response, string $message): Commit
-    {
-        $data = $response->json();
-
-        return new Commit(
-            provider: $this->providerName(),
-            sha: $data['commit_id'] ?? ($data['file_path'] ?? ''),
-            message: $message,
-            author: new Author(name: '', email: '', avatar: null),
-            url: null,
-            commitAt: Carbon::now(),
-            raw: $data,
-        );
     }
 }

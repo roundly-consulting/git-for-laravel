@@ -117,7 +117,11 @@ it('creates a repository, branch, files and a merge request', function () {
             'namespace' => ['id' => 2, 'path' => 'g'], 'created_at' => '2020-01-01T00:00:00Z', 'last_activity_at' => null,
         ]),
         '*/repository/branches' => Http::response(['name' => 'feature']),
-        '*/repository/files/*' => Http::response(['file_path' => 'a.txt', 'commit_id' => 'c1']),
+        '*/repository/commits' => Http::response([
+            'id' => 'c1', 'short_id' => 'c1', 'title' => 'add', 'message' => 'add',
+            'author_name' => 'Jane', 'author_email' => 'jane@example.com',
+            'authored_date' => '2020-01-01T00:00:00Z', 'web_url' => 'https://gitlab.com/g/p/-/commit/c1',
+        ]),
         '*/merge_requests' => Http::response([
             'id' => 1, 'iid' => 4, 'title' => 'MR', 'state' => 'opened',
             'source_branch' => 'feature', 'target_branch' => 'main', 'created_at' => '2020-01-01T00:00:00Z',
@@ -183,3 +187,32 @@ it('reads a file at the ref it is given', function () {
 
     Http::assertSent(fn ($request): bool => str_contains($request->url(), 'ref=develop'));
 });
+
+it('returns the commit a file write made, not the file path', function (string $method, string $action) {
+    $sha = str_repeat('d', 40);
+
+    Http::fake(['*/repository/commits' => Http::response([
+        'id' => $sha, 'short_id' => 'ddddddd', 'title' => 'docs', 'message' => 'docs',
+        'author_name' => 'Jane', 'author_email' => 'jane@example.com', 'authored_date' => '2020-01-01T00:00:00Z',
+    ])]);
+
+    $commit = $method === 'create'
+        ? gitlab()->repo('g/p')->createFile(new NewFile('docs/a.md', "bin\x00ary", 'docs', 'main'))
+        : gitlab()->repo('g/p')->updateFile(new UpdatedFile('docs/a.md', "bin\x00ary", 'docs', 'main', 'blob'));
+
+    expect($commit->sha)->toBe($sha)
+        ->and($commit->author->name)->toBe('Jane');
+
+    Http::assertSent(fn ($request): bool => str_ends_with($request->url(), '/api/v4/projects/g%2Fp/repository/commits')
+        && $request['branch'] === 'main'
+        && $request['commit_message'] === 'docs'
+        && $request['actions'] === [[
+            'action' => $action,
+            'file_path' => 'docs/a.md',
+            'content' => base64_encode("bin\x00ary"),
+            'encoding' => 'base64',
+        ]]);
+})->with([
+    ['create', 'create'],
+    ['update', 'update'],
+]);
