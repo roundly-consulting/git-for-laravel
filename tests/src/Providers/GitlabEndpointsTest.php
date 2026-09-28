@@ -162,3 +162,24 @@ it('follows the X-Next-Page header when auto-paginating', function () {
 
     expect(gitlab()->allRepositories(perPage: 1)->count())->toBe(2);
 });
+
+it('reads a file from the project default branch when no ref is given', function () {
+    Http::fake(['*/repository/files/*' => Http::response([
+        'file_path' => 'README.md', 'content' => base64_encode('# hi'), 'blob_id' => 'b', 'size' => 4,
+    ])]);
+
+    expect(gitlab()->repo('g/p')->contents('README.md')->content)->toBe('# hi');
+    gitlab()->batch()->contents('g/p', ['README.md']);
+
+    // `HEAD` is GitLab's own name for the default branch — `main` 404s on a `master` project.
+    Http::assertSentCount(2);
+    Http::assertNotSent(fn ($request): bool => ! str_contains($request->url(), 'ref=HEAD'));
+});
+
+it('reads a file at the ref it is given', function () {
+    Http::fake(['*/repository/files/*' => Http::response(['file_path' => 'README.md', 'content' => ''])]);
+
+    gitlab()->contents('g/p', 'README.md', 'develop');
+
+    Http::assertSent(fn ($request): bool => str_contains($request->url(), 'ref=develop'));
+});

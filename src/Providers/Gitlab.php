@@ -270,6 +270,10 @@ class Gitlab extends BaseProvider
     }
 
     /**
+     * GitLab requires a `ref` here, so an omitted one is `HEAD` — GitLab's name for the
+     * project's default branch — rather than a guess like `main`, which 404s on every
+     * project whose default branch is called anything else.
+     *
      * @internal the batch plumbing.
      *
      * @return array{0: string, 1: array<string, mixed>}
@@ -278,7 +282,7 @@ class Gitlab extends BaseProvider
     {
         return [
             '/api/v4/projects/'.$this->encode($path).'/repository/files/'.$this->encodeWhole(PathGuard::file($filePath)),
-            ['ref' => $ref ?? 'main'],
+            ['ref' => $ref ?? 'HEAD'],
         ];
     }
 
