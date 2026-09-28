@@ -11,7 +11,7 @@ use RoundlyConsulting\Git\Dto\Page;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
-use RoundlyConsulting\Git\Facades\Registry;
+use RoundlyConsulting\Git\Facades\Git;
 
 it('returns name and description of provider', function () {
     expect(gitlab())
@@ -24,7 +24,7 @@ it('checks whether specific feature is supported by provider', function () {
 });
 
 it('throws exception when authenticating with an unsupported method', function () {
-    Registry::gitlab(
+    Git::gitlab(
         new Password(
             credentials: new SensitiveParameterValue('zer0day'),
         )

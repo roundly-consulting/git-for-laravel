@@ -31,7 +31,7 @@ use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Enums\ReviewEvent;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
-use RoundlyConsulting\Git\Facades\Registry;
+use RoundlyConsulting\Git\Facades\Git;
 
 it('lists pull requests', function () {
     Http::fake(['*/repos/o/r/pulls*' => Http::response([[
@@ -503,7 +503,7 @@ it('creates and deletes a webhook', function () {
 });
 
 it('guards writes behind authentication', function () {
-    Registry::provider(ProviderName::Github)
+    Git::provider(ProviderName::Github)
         ->createRepository(new NewRepository('x'));
 })->throws(InvalidCredentialsException::class);
 

@@ -14,10 +14,11 @@ use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\ProviderName;
-use RoundlyConsulting\Git\Facades\Registry;
+use RoundlyConsulting\Git\Facades\Git;
+use RoundlyConsulting\Git\Testing\ProviderFake;
 
 it('exposes a faithful provider double surface', function () {
-    $fake = Registry::fake();
+    $fake = Git::fake();
     $provider = $fake->github();
 
     expect($provider->name())->toBe('GitHub')
@@ -32,7 +33,7 @@ it('exposes a faithful provider double surface', function () {
 });
 
 it('returns seeded branches, commit and clone url', function () {
-    $fake = Registry::fake();
+    $fake = Git::fake();
     $commit = new Commit(ProviderName::Github, 'sha', 'msg', new Author('n', 'e', null), null, Carbon::now());
 
     $provider = $fake->github();
@@ -47,30 +48,25 @@ it('returns seeded branches, commit and clone url', function () {
 });
 
 it('throws when reading unseeded repository or commit', function () {
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     expect(fn () => $provider->repository('o/r'))->toThrow(RuntimeException::class)
         ->and(fn () => $provider->commit('o/r', 'x'))->toThrow(RuntimeException::class);
 });
 
 it('exposes capabilities and the feature matrix on the fake', function () {
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     expect($provider->capabilities())->toHaveCount(count(Feature::cases()))
         ->and($provider->supportsAll(Feature::CreateRelease))->toBeTrue()
         ->and($provider->supportsAny(Feature::CreateRelease))->toBeTrue()
         ->and($provider->supportsAny())->toBeFalse()
         ->and($provider->featureMatrix())->toHaveCount(count(Feature::cases()))
-        ->and($provider->repositoryUrl('o/r'))->toBe('o/r')
-        ->and($provider->languagesUrl('o/r'))->toBe('o/r')
-        ->and($provider->pullRequestUrl('o/r', 7))->toBe('o/r#7')
-        ->and($provider->contentsRequest('o/r', 'f', null))->toBe(['f', []])
-        ->and($provider->normalizeLanguages(['PHP' => '90']))->toBe(['PHP' => 90])
-        ->and($provider->runPool([]))->toBe([]);
+        ->and($provider->featureInfo())->toHaveCount(count(Feature::cases()));
 });
 
 it('drives the webhook lifecycle through the fake', function () {
-    $fake = Registry::fake();
+    $fake = Git::fake();
     $provider = $fake->github();
     $provider->seedWebhooks([new Webhook(
         provider: ProviderName::Github,
@@ -80,7 +76,7 @@ it('drives the webhook lifecycle through the fake', function () {
         active: true,
     )]);
 
-    $manager = $provider->webhooks('o/r');
+    $manager = $provider->repo('o/r')->webhooks();
 
     expect($manager->all())->toHaveCount(1)
         ->and($manager->registered('https://app.test/hook'))->toBeTrue();
@@ -94,19 +90,20 @@ it('drives the webhook lifecycle through the fake', function () {
     $fake->assertSent(ProviderName::Github, 'deleteWebhook');
 });
 
-it('throws on unavailable fake mappers', function () {
-    $provider = Registry::fake()->github();
-
-    expect(fn () => $provider->mapResource())->toThrow(RuntimeException::class)
-        ->and(fn () => $provider->mapFileContent([]))->toThrow(RuntimeException::class);
+it('keeps the batch plumbing off the fake', function () {
+    // The URL builders, mappers and pool runner are the drivers' `@internal` batch
+    // plumbing, not part of the Provider contract — so the double has nothing to fake.
+    foreach (['mapResource', 'mapFileContent', 'runPool', 'repositoryUrl', 'languagesUrl', 'pullRequestUrl', 'contentsRequest', 'normalizeLanguages'] as $method) {
+        expect(method_exists(ProviderFake::class, $method))->toBeFalse("ProviderFake still answers [{$method}].");
+    }
 });
 
 it('drives the installation flow without http', function () {
-    // ONE fake: Registry::fake() rebinds a fresh double, so a second call would assert
+    // ONE fake: Git::fake() rebinds a fresh double, so a second call would assert
     // against an instance that recorded nothing.
-    $registry = Registry::fake();
+    $fake = Git::fake();
 
-    $registry->github()->seedInstallation(new Installation(
+    $fake->github()->seedInstallation(new Installation(
         provider: ProviderName::Github,
         id: '51234567',
         accountLogin: 'acme-inc',
@@ -125,57 +122,57 @@ it('drives the installation flow without http', function () {
         lastActivityAt: Carbon::parse('2026-08-01'),
     )]);
 
-    expect(Registry::githubApp()->installation('51234567')->accountLogin)->toBe('acme-inc')
-        ->and(Registry::github()->installationRepositories()->items)->toHaveCount(1)
-        ->and(Registry::github()->allInstallationRepositories()->all())->toHaveCount(1);
+    expect(Git::githubApp()->installation('51234567')->accountLogin)->toBe('acme-inc')
+        ->and(Git::github()->installationRepositories()->items)->toHaveCount(1)
+        ->and(Git::github()->allInstallationRepositories()->all())->toHaveCount(1);
 
-    $registry->assertSent(ProviderName::Github, 'installation');
+    $fake->assertSent(ProviderName::Github, 'installation');
 });
 
 it('refuses an installation lookup nobody seeded', function () {
-    Registry::fake();
+    Git::fake();
 
-    expect(fn () => Registry::githubApp()->installation('1'))->toThrow(RuntimeException::class);
+    expect(fn () => Git::githubApp()->installation('1'))->toThrow(RuntimeException::class);
 });
 
 it('drives the app-jwt lookups through the fake', function () {
-    $registry = Registry::fake();
+    $fake = Git::fake();
 
-    $registry->githubApp()->seedInstallation(fakeInstallation());
+    $fake->githubApp()->seedInstallation(fakeInstallation());
 
     // Every app-jwt lookup answers the single seeded installation, and each records under
     // its OWN method name so a consumer can assert WHICH lookup its code performed.
-    expect(Registry::githubApp()->organizationInstallation('acme-inc')->accountLogin)->toBe('acme-inc')
-        ->and(Registry::githubApp()->userInstallation('octocat')->accountType)->toBe('Organization')
+    expect(Git::githubApp()->organizationInstallation('acme-inc')->accountLogin)->toBe('acme-inc')
+        ->and(Git::githubApp()->userInstallation('octocat')->accountType)->toBe('Organization')
         // No explicit list seeded: the single installation stands in, rather than an empty
         // page that would read as "this app is installed nowhere".
-        ->and(Registry::githubApp()->installations()->items)->toHaveCount(1);
+        ->and(Git::githubApp()->installations()->all()->items)->toHaveCount(1);
 
-    $registry->assertSent(ProviderName::Github, 'organizationInstallation');
-    $registry->assertSent(ProviderName::Github, 'userInstallation');
-    $registry->assertSent(ProviderName::Github, 'installations');
+    $fake->assertSent(ProviderName::Github, 'organizationInstallation');
+    $fake->assertSent(ProviderName::Github, 'userInstallation');
+    $fake->assertSent(ProviderName::Github, 'listInstallations');
 });
 
 it('lists every seeded installation', function () {
-    $registry = Registry::fake();
+    $fake = Git::fake();
 
-    $registry->githubApp()->seedInstallations([
+    $fake->githubApp()->seedInstallations([
         fakeInstallation(),
         fakeInstallation('octocat'),
     ]);
 
-    $items = Registry::githubApp()->installations()->items;
+    $items = Git::githubApp()->installations()->all()->items;
 
     expect($items)->toHaveCount(2)
         ->and($items[1]->accountLogin)->toBe('octocat');
 });
 
 it('refuses an installation list nobody seeded', function () {
-    Registry::fake();
+    Git::fake();
 
-    expect(Registry::githubApp()->installations()->items)->toBe([])
-        ->and(fn () => Registry::githubApp()->organizationInstallation('acme-inc'))->toThrow(RuntimeException::class)
-        ->and(fn () => Registry::githubApp()->userInstallation('octocat'))->toThrow(RuntimeException::class);
+    expect(Git::githubApp()->installations()->all()->items)->toBe([])
+        ->and(fn () => Git::githubApp()->organizationInstallation('acme-inc'))->toThrow(RuntimeException::class)
+        ->and(fn () => Git::githubApp()->userInstallation('octocat'))->toThrow(RuntimeException::class);
 });
 
 function fakeInstallation(string $login = 'acme-inc'): Installation
@@ -191,7 +188,7 @@ function fakeInstallation(string $login = 'acme-inc'): Installation
 }
 
 it('round-trips every repository-provisioning field', function () {
-    $fake = Registry::fake();
+    $fake = Git::fake();
 
     $repo = $fake->github()->createRepository(new NewRepository(
         name: 'widget',
@@ -212,7 +209,7 @@ it('round-trips every repository-provisioning field', function () {
 });
 
 it('reports no default branch on a fake repository with no initial commit', function () {
-    $repo = Registry::fake()->github()->createRepository(new NewRepository('widget'));
+    $repo = Git::fake()->github()->createRepository(new NewRepository('widget'));
 
     expect($repo->defaultBranch)->toBe('')->and($repo->path)->toBe('widget');
 });
@@ -230,7 +227,7 @@ it('lets a seeded repository win over the provisioning input', function () {
         lastActivityAt: Carbon::now(),
     );
 
-    $repo = Registry::fake()->github()
+    $repo = Git::fake()->github()
         ->seedCreatedRepository($seeded)
         ->createRepository(new NewRepository(name: 'widget', owner: 'acme', autoInit: true));
 

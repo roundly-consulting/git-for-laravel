@@ -8,7 +8,7 @@ use RoundlyConsulting\Git\Dto\Input\NewRepository;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Enums\ProviderName;
-use RoundlyConsulting\Git\Facades\Registry;
+use RoundlyConsulting\Git\Facades\Git;
 
 function fakeRepository(string $name = 'Hello-World'): Repository
 {
@@ -26,10 +26,10 @@ function fakeRepository(string $name = 'Hello-World'): Repository
 }
 
 it('returns seeded repositories and records the call', function () {
-    $fake = Registry::fake();
+    $fake = Git::fake();
     $fake->github()->seedRepositories([fakeRepository()]);
 
-    $repositories = Registry::github()->repositories();
+    $repositories = Git::github()->repositories();
 
     expect($repositories->first())->toBeInstanceOf(Repository::class)->name->toBe('Hello-World');
 
@@ -38,44 +38,44 @@ it('returns seeded repositories and records the call', function () {
 });
 
 it('seeds a user and a single repository', function () {
-    $fake = Registry::fake();
+    $fake = Git::fake();
     $fake->github()
         ->seedUser(new Owner(id: '9', name: 'jane', avatar: null))
         ->seedRepository(fakeRepository('one'));
 
-    expect(Registry::github()->user()->name)->toBe('jane')
-        ->and(Registry::github()->repository('octocat/one')->name)->toBe('one');
+    expect(Git::github()->user()->name)->toBe('jane')
+        ->and(Git::github()->repository('octocat/one')->name)->toBe('one');
 });
 
 it('records and asserts created repositories', function () {
-    $fake = Registry::fake();
+    $fake = Git::fake();
 
-    Registry::github()->createRepository(new NewRepository('acme'));
+    Git::github()->createRepository(new NewRepository('acme'));
 
     $fake->assertRepositoryCreated('acme');
     $fake->assertSent(ProviderName::Github, 'createRepository');
 });
 
 it('resolves fakes via the provider method and lazily', function () {
-    $fake = Registry::fake();
+    $fake = Git::fake();
     $fake->fakeFor(ProviderName::Gitlab)->seedRepositories([fakeRepository()]);
 
-    expect(Registry::provider('gitlab')->allRepositories()->count())->toBe(1);
+    expect(Git::provider('gitlab')->allRepositories()->count())->toBe(1);
 });
 
 it('asserts nothing sent on a fresh fake', function () {
-    Registry::fake()->assertNothingSent();
+    Git::fake()->assertNothingSent();
 });
 
 it('fails assertSent when the method was never called', function () {
-    $fake = Registry::fake();
+    $fake = Git::fake();
 
     expect(fn () => $fake->assertSent(ProviderName::Bitbucket, 'repositories'))
         ->toThrow(AssertionFailedError::class);
 });
 
 it('narrows the repository-created assertion to owner and template', function () {
-    $fake = Registry::fake();
+    $fake = Git::fake();
 
     $fake->github()->createRepository(new NewRepository(
         name: 'widget',
@@ -89,7 +89,7 @@ it('narrows the repository-created assertion to owner and template', function ()
 });
 
 it('fails the repository-created assertion when it landed under another owner', function () {
-    $fake = Registry::fake();
+    $fake = Git::fake();
 
     $fake->github()->createRepository(new NewRepository(name: 'widget', owner: 'acme'));
 

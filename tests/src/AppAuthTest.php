@@ -7,7 +7,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
-use RoundlyConsulting\Git\Facades\Registry;
+use RoundlyConsulting\Git\Facades\Git;
 
 function appCred(): GithubAppToken
 {
@@ -29,7 +29,7 @@ it('uses the minted installation token for reads without re-minting', function (
         '*/user' => Http::response(['id' => 1, 'login' => 'octocat']),
     ]);
 
-    $provider = Registry::github(appCred());
+    $provider = Git::github(appCred());
 
     $provider->user();
     $provider->user();
@@ -49,13 +49,13 @@ it('uses the minted token on write requests too', function () {
         '*/repos/acme/api/hooks' => Http::response(['id' => 1, 'config' => ['url' => 'u'], 'events' => ['push'], 'active' => true]),
     ]);
 
-    Registry::github(appCred())->createWebhook('acme/api', new NewWebhook(url: 'https://app.test/hook'));
+    Git::github(appCred())->createWebhook('acme/api', new NewWebhook(url: 'https://app.test/hook'));
 
     Http::assertSent(fn (Request $request): bool => ! str_contains($request->url(), '/hooks')
         || $request->hasHeader('Authorization', 'Bearer ghs_write'));
 });
 
-it('builds an app credential from config via the registry', function () {
+it('builds an app credential from config via the manager', function () {
     $resource = openssl_pkey_new(['private_key_bits' => 2048, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
     openssl_pkey_export($resource, $privateKey);
 
@@ -71,7 +71,7 @@ it('builds an app credential from config via the registry', function () {
         '*/user' => Http::response(['id' => 1, 'login' => 'octocat']),
     ]);
 
-    Registry::github()->user();
+    Git::github()->user();
 
     Http::assertSent(fn (Request $request): bool => ! str_contains($request->url(), '/user')
         || $request->hasHeader('Authorization', 'Bearer ghs_config'));

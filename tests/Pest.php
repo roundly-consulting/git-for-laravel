@@ -5,7 +5,7 @@ use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
-use RoundlyConsulting\Git\Facades\Registry;
+use RoundlyConsulting\Git\Facades\Git;
 use RoundlyConsulting\Git\Providers\Bitbucket;
 use RoundlyConsulting\Git\Providers\Github;
 use RoundlyConsulting\Git\Providers\Gitlab;
@@ -24,7 +24,9 @@ uses(TestCase::class)->in(
     __DIR__.'/src/Batch',
     __DIR__.'/src/Auth',
     __DIR__.'/src/EnumsTest.php',
-    __DIR__.'/src/RegistryTest.php',
+    __DIR__.'/src/GitManagerTest.php',
+    __DIR__.'/src/Handles',
+    __DIR__.'/Feature',
     __DIR__.'/src/RateLimitTest.php',
     __DIR__.'/src/ResilienceTest.php',
     __DIR__.'/src/WebhookRouteTest.php',
@@ -108,7 +110,7 @@ if (! function_exists('snapshotData')) {
 if (! function_exists('github')) {
     function github(?string $accessToken = 'token-value'): Github
     {
-        return Registry::github(
+        return Git::github(
             new Token(
                 credentials: new SensitiveParameterValue($accessToken)
             ),
@@ -119,7 +121,7 @@ if (! function_exists('github')) {
 if (! function_exists('gitlab')) {
     function gitlab(?string $accessToken = 'token-value'): Gitlab
     {
-        return Registry::gitlab(
+        return Git::gitlab(
             new Token(
                 credentials: new SensitiveParameterValue($accessToken)
             ),
@@ -130,7 +132,7 @@ if (! function_exists('gitlab')) {
 if (! function_exists('bitbucket')) {
     function bitbucket(?string $accessToken = 'token-value'): Bitbucket
     {
-        return Registry::bitbucket(
+        return Git::bitbucket(
             new Token(
                 credentials: new SensitiveParameterValue($accessToken)
             ),

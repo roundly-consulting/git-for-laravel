@@ -5,7 +5,7 @@ declare(strict_types=1);
 use RoundlyConsulting\Git\Dto\FeatureInfo;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\ProviderName;
-use RoundlyConsulting\Git\Facades\Registry;
+use RoundlyConsulting\Git\Facades\Git;
 
 it('reports every feature in the capability matrix', function () {
     $capabilities = github()->capabilities();
@@ -33,8 +33,8 @@ it('builds a flagged feature matrix', function () {
         ->and($matrix)->toHaveCount(count(Feature::cases()));
 });
 
-it('exposes capabilities from the registry without authenticating', function () {
-    $caps = Registry::capabilities(ProviderName::Bitbucket);
+it('exposes capabilities from the manager without authenticating', function () {
+    $caps = Git::capabilities(ProviderName::Bitbucket);
 
     expect($caps[Feature::Languages->value])->toBeFalse()
         ->and($caps[Feature::FindRepository->value])->toBeTrue();

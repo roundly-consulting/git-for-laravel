@@ -12,7 +12,7 @@ use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
-use RoundlyConsulting\Git\Facades\Registry;
+use RoundlyConsulting\Git\Facades\Git;
 
 it('returns name and description of provider', function () {
     expect(bitbucket())
@@ -27,7 +27,7 @@ it('checks whether specific feature is supported by provider', function () {
 });
 
 it('throws exception when authenticating with an unsupported method', function () {
-    Registry::bitbucket(
+    Git::bitbucket(
         new Password(
             credentials: new SensitiveParameterValue('zer0day'),
         )

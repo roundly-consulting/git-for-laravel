@@ -36,12 +36,12 @@ use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Enums\ResourceState;
 use RoundlyConsulting\Git\Enums\ReviewEvent;
-use RoundlyConsulting\Git\Facades\Registry;
+use RoundlyConsulting\Git\Facades\Git;
 
 /**
  * The fake used to answer roughly a third of the provider surface, so a host application
  * that listed pull requests, read file contents, or merged anything through
- * `Registry::fake()` hit PHP's "undefined method" — a failure that reads as a bug in the
+ * `Git::fake()` hit PHP's "undefined method" — a failure that reads as a bug in the
  * host. These pin the whole surface.
  */
 function seededPullRequest(int $number = 7, ResourceState $state = ResourceState::Open): PullRequest
@@ -62,7 +62,7 @@ function seededPullRequest(int $number = 7, ResourceState $state = ResourceState
 }
 
 it('answers every list read from its seed bucket', function (): void {
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     $provider->seedBranches(['main', 'develop'])
         ->seedPullRequests([seededPullRequest()])
@@ -84,7 +84,7 @@ it('answers every list read from its seed bucket', function (): void {
 it('answers an EMPTY page for a list nobody seeded', function (): void {
     // An empty list is a real provider answer, so it cannot mislead — unlike a
     // placeholder resource, which turns a missing seed into a confusing assertion failure.
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     expect($provider->pullRequests('o/r')->items)->toBe([])
         ->and($provider->issues('o/r')->items)->toBe([])
@@ -96,7 +96,7 @@ it('answers an EMPTY page for a list nobody seeded', function (): void {
 });
 
 it('falls back from a single resource to the first of its list', function (): void {
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     $provider->seedPullRequests([seededPullRequest()])
         ->seedIssues([new Issue(ProviderName::Github, 'i-1', 3, 'Bug', null, ResourceState::Open, null, null, Carbon::now())])
@@ -108,7 +108,7 @@ it('falls back from a single resource to the first of its list', function (): vo
 });
 
 it('names the seeder when a single resource is missing', function (): void {
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     expect(fn () => $provider->contents('o/r', 'README.md'))
         ->toThrow(RuntimeException::class, 'seedContents()')
@@ -118,7 +118,7 @@ it('names the seeder when a single resource is missing', function (): void {
 });
 
 it('reads seeded file contents and a comparison', function (): void {
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     $provider->seedContents(new FileContent('README.md', '# Hi', 'sha', 4, null));
 
@@ -132,19 +132,19 @@ it('reads seeded file contents and a comparison', function (): void {
 });
 
 it('runs a commit query over the seeded commits', function (): void {
-    $registry = Registry::fake();
-    $provider = $registry->github();
+    $fake = Git::fake();
+    $provider = $fake->github();
 
     $provider->seedCommits([new Commit(ProviderName::Github, 'sha', 'msg', new Author('n', 'e', null), null, Carbon::now())]);
 
     expect($provider->commits('o/r')->branch('main')->collect())->toHaveCount(1);
 
-    $registry->assertSent(ProviderName::Github, 'commits');
+    $fake->assertSent(ProviderName::Github, 'commits');
 });
 
 it('synthesizes every write from the input it was handed', function (): void {
-    $registry = Registry::fake();
-    $provider = $registry->github();
+    $fake = Git::fake();
+    $provider = $fake->github();
 
     $commit = $provider->createFile('o/r', new NewFile('a.txt', 'x', 'add a', 'main'));
     $updated = $provider->updateFile('o/r', new UpdatedFile('a.txt', 'y', 'update a', 'main', 'sha'));
@@ -159,18 +159,18 @@ it('synthesizes every write from the input it was handed', function (): void {
         ->and($provider->createRelease('o/r', new NewRelease('v1.0.0', 'One'))->tagName)->toBe('v1.0.0')
         ->and($provider->createTag('o/r', new NewTag('v1.0.0', 'sha'))->name)->toBe('v1.0.0');
 
-    $registry->assertSent(ProviderName::Github, 'createBranch');
-    $registry->assertSent(ProviderName::Github, 'createFile');
-    $registry->assertSent(ProviderName::Github, 'updateFile');
-    $registry->assertSent(ProviderName::Github, 'createPullRequest');
-    $registry->assertSent(ProviderName::Github, 'comment');
-    $registry->assertSent(ProviderName::Github, 'createRelease');
-    $registry->assertSent(ProviderName::Github, 'createTag');
+    $fake->assertSent(ProviderName::Github, 'createBranch');
+    $fake->assertSent(ProviderName::Github, 'createFile');
+    $fake->assertSent(ProviderName::Github, 'updateFile');
+    $fake->assertSent(ProviderName::Github, 'createPullRequest');
+    $fake->assertSent(ProviderName::Github, 'comment');
+    $fake->assertSent(ProviderName::Github, 'createRelease');
+    $fake->assertSent(ProviderName::Github, 'createTag');
 });
 
 it('drives the close / approve / merge flow', function (): void {
-    $registry = Registry::fake();
-    $provider = $registry->github();
+    $fake = Git::fake();
+    $provider = $fake->github();
 
     $provider->seedPullRequest(seededPullRequest())->seedMergeCommit('merge-sha');
 
@@ -183,14 +183,14 @@ it('drives the close / approve / merge flow', function (): void {
         ->number->toBe(7)
         ->title->toBe('Add CI');
 
-    $registry->assertSent(ProviderName::Github, 'approvePullRequest');
-    $registry->assertSent(ProviderName::Github, 'mergePullRequest');
-    $registry->assertSent(ProviderName::Github, 'closePullRequest');
+    $fake->assertSent(ProviderName::Github, 'approvePullRequest');
+    $fake->assertSent(ProviderName::Github, 'mergePullRequest');
+    $fake->assertSent(ProviderName::Github, 'closePullRequest');
 });
 
 it('answers a submitted review with the state the event actually means', function (): void {
-    $registry = Registry::fake();
-    $provider = $registry->github();
+    $fake = Git::fake();
+    $provider = $fake->github();
 
     // Derived from the event rather than seeded: a fake that answered APPROVED for a
     // COMMENT review would pass a test of the exact confusion the verdict-in-the-body
@@ -204,11 +204,11 @@ it('answers a submitted review with the state the event actually means', functio
         ->and($provider->reviewPullRequest('o/r', 7, new NewReview(ReviewEvent::Approve)))
         ->state->toBe('APPROVED');
 
-    $registry->assertSent(ProviderName::Github, 'reviewPullRequest');
+    $fake->assertSent(ProviderName::Github, 'reviewPullRequest');
 });
 
 it('reads back the reviews and comments it was seeded, and an empty pair when it was not', function (): void {
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     expect($provider->pullRequestReviews('o/r', 7))->reviews->toBe([])->comments->toBe([]);
 
@@ -244,7 +244,7 @@ it('seeds the two halves separately and still joins them', function (): void {
     // The join the real provider does across two endpoints has to hold on the fake too,
     // or a host asserting "changes requested, because of THESE findings" passes here and
     // fails against GitHub.
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     $provider->seedPullRequestReviews(
         [new PullRequestReview(
@@ -279,7 +279,7 @@ it('seeds the two halves separately and still joins them', function (): void {
 it('answers a seeded review instead of one synthesized from the input', function (): void {
     // The escape hatch for a host that needs a specific id or url back — it OVERRIDES the
     // event-derived state, which is the whole point of seeding one.
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     $provider->seedSubmittedReview(new PullRequestReview(
         provider: ProviderName::Github,
@@ -297,7 +297,7 @@ it('answers a seeded review instead of one synthesized from the input', function
 });
 
 it('merges and approves without any seeding at all', function (): void {
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     expect($provider->mergePullRequest('o/r', 7))->toBe('fake-merge-sha')
         ->and($provider->approvePullRequest('o/r', 7))->toBe('APPROVED')
@@ -305,7 +305,7 @@ it('merges and approves without any seeding at all', function (): void {
 });
 
 it('answers a search from the repository bucket when no results were seeded', function (): void {
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     $provider->seedRepositories([new Repository(
         provider: ProviderName::Github,
@@ -328,7 +328,7 @@ it('answers a search from the repository bucket when no results were seeded', fu
 });
 
 it('omits an EMPTY state from the fake install url, like the real provider does', function (): void {
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     // A consumer that built a state and got back '' would otherwise be able to assert a
     // `?state=` URL production never produces.
@@ -338,7 +338,7 @@ it('omits an EMPTY state from the fake install url, like the real provider does'
 });
 
 it('lets an explicit seed win over every synthesized default', function (): void {
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     $repository = new Repository(
         provider: ProviderName::Github,
@@ -373,7 +373,7 @@ it('lets an explicit seed win over every synthesized default', function (): void
 });
 
 it('carries a refreshable credential into the fake clone url', function (): void {
-    $provider = Registry::fake()->github();
+    $provider = Git::fake()->github();
 
     $oauth = OauthToken::for('access', 'refresh', 'client', 'secret', 'https://token.test');
 
@@ -383,4 +383,13 @@ it('carries a refreshable credential into the fake clone url', function (): void
         // which some git clients read as a prompt.
         ->and($provider->cloneUrlForRepository('o/r', 'jane', Token::from('')))
         ->toBe('https://jane@fake/o/r.git');
+});
+
+it('answers an unseeded pull request with the number that was asked for', function (): void {
+    // Regression: `pullRequest()` ignored the number and always answered #1, while
+    // `closePullRequest()` honoured it — so `repo()->pullRequest(12)->get()` read #1.
+    $provider = Git::fake()->github();
+
+    expect($provider->pullRequest('o/r', 12)->number)->toBe(12)
+        ->and($provider->closePullRequest('o/r', 12)->number)->toBe(12);
 });

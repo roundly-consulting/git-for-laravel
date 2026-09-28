@@ -6,12 +6,12 @@ use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
-use RoundlyConsulting\Git\Facades\Registry;
+use RoundlyConsulting\Git\Facades\Git;
 use RoundlyConsulting\Git\Providers\Github;
 
 function githubAuthed(): Github
 {
-    return Registry::github(Token::from('token-value'));
+    return Git::github(Token::from('token-value'));
 }
 
 it('registers a hook with the derived url and configured secret', function () {
@@ -21,7 +21,7 @@ it('registers a hook with the derived url and configured secret', function () {
             ->push(['id' => 7, 'config' => ['url' => route('git.webhooks', ['provider' => 'github'])], 'events' => ['push'], 'active' => true]),
     ]);
 
-    $hook = githubAuthed()->webhooks('acme/api')->register();
+    $hook = githubAuthed()->repo('acme/api')->webhooks()->register();
 
     expect($hook->id)->toBe('7');
 
@@ -46,7 +46,7 @@ it('is idempotent and does not create a duplicate hook', function () {
         ]),
     ]);
 
-    $hook = githubAuthed()->webhooks('acme/api')->register();
+    $hook = githubAuthed()->repo('acme/api')->webhooks()->register();
 
     expect($hook->id)->toBe('7');
 
@@ -60,7 +60,7 @@ it('accepts an explicit url override', function () {
             ->push(['id' => 9, 'config' => ['url' => 'https://override.test/hook'], 'events' => ['push'], 'active' => true]),
     ]);
 
-    $hook = githubAuthed()->webhooks('acme/api')->register(url: 'https://override.test/hook');
+    $hook = githubAuthed()->repo('acme/api')->webhooks()->register(url: 'https://override.test/hook');
 
     expect($hook->url)->toBe('https://override.test/hook');
 });
@@ -75,7 +75,7 @@ it('probes and deletes hooks by url', function () {
         ]),
     ]);
 
-    $manager = githubAuthed()->webhooks('acme/api');
+    $manager = githubAuthed()->repo('acme/api')->webhooks();
 
     expect($manager->registered($url))->toBeTrue()
         ->and($manager->registered('https://nope.test'))->toBeFalse()
@@ -87,13 +87,13 @@ it('throws when deriving a url with webhooks disabled', function () {
 
     Http::fake(['*/repos/acme/api/hooks' => Http::response([])]);
 
-    expect(fn () => githubAuthed()->webhooks('acme/api')->register())
+    expect(fn () => githubAuthed()->repo('acme/api')->webhooks()->register())
         ->toThrow(InvalidArgumentException::class);
 });
 
 it('guards against an unauthenticated provider', function () {
     Http::preventStrayRequests();
 
-    expect(fn () => Registry::github()->webhooks('acme/api')->all())
+    expect(fn () => Git::github()->repo('acme/api')->webhooks()->all())
         ->toThrow(InvalidCredentialsException::class);
 });

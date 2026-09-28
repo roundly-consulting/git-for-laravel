@@ -3,12 +3,12 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\Git\Batch\Batch;
+use RoundlyConsulting\Git\GitManager;
 use RoundlyConsulting\Git\Providers\BaseProvider;
 use RoundlyConsulting\Git\Providers\Bitbucket;
 use RoundlyConsulting\Git\Providers\Github;
 use RoundlyConsulting\Git\Providers\Gitlab;
 use RoundlyConsulting\Git\Query\Query;
-use RoundlyConsulting\Git\Registry;
 use RoundlyConsulting\Testing\Arch\ArchPresets;
 
 /**
@@ -26,15 +26,16 @@ ArchPresets::strictTypes('RoundlyConsulting\Git');
  * The extension points below are deliberate and documented:
  *  - `BaseProvider` / `Query` are abstract — the shape every forge driver extends;
  *  - `Github` / `Gitlab` / `Bitbucket` are the drivers a host subclasses to bend one
- *    forge's behaviour without forking the registry;
- *  - `Registry` is the manager those drivers are resolved from;
+ *    forge's behaviour without forking the manager;
+ *  - `GitManager` is the facade root those drivers are resolved from, and `Testing\GitFake`
+ *    extends it so an injected manager sees the fake;
  *  - `Batch` is extended by the providers' own batch builders.
  *
  * The list goes through the `$ignoring` PARAMETER, not Pest's fluent `->ignoring()`. This
  * is the fleet's largest exemption set, which is exactly where the fluent form's two
  * silent costs bite hardest:
  *
- *  - it is NOT rot-checked. Eight `::class` constants that PHP resolves to strings at
+ *  - it is NOT rot-checked. Seven `::class` constants that PHP resolves to strings at
  *    compile time, so a rename leaves a green exemption that silences nothing and a ban
  *    that quietly applies where nobody expects it;
  *  - it forfeits the shadow recovery. Pest matches exemptions by string PREFIX
@@ -49,9 +50,8 @@ ArchPresets::finalByDefault('RoundlyConsulting\Git', [
     Gitlab::class,
     Bitbucket::class,
     Query::class,
-    Registry::class,
+    GitManager::class,
     Batch::class,
-    RoundlyConsulting\Git\Facades\Registry::class,
 ]);
 
 /**
@@ -115,6 +115,14 @@ ArchPresets::runtimeRequireIsWhitelisted(__DIR__.'/../composer.json');
  * have failed. It also adds `var_dump`/`print_r`, which git never banned.
  */
 ArchPresets::noDebuggingLeftovers();
+
+/**
+ * Git ships no models, but it does have a `Concerns` namespace (the driver and handle
+ * traits), which is what this preset polices: nothing there may reach into `Actions`.
+ * Git has no `src/Actions` either — it is a remote-API client whose behaviour lives in
+ * the drivers — so the pin guards the day one is added.
+ */
+ArchPresets::modelsGoThroughTheFacade('RoundlyConsulting\Git');
 
 /**
  * Bespoke, and kept: only crypto's PUBLIC surface is ours to use. Whatever crypto tags

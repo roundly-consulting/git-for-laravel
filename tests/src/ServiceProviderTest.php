@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\ServiceProvider;
+use RoundlyConsulting\Git\GitManager;
 use RoundlyConsulting\Git\GitServiceProvider;
-use RoundlyConsulting\Git\Registry;
 
 it('merges the package config', function (): void {
     expect(config('git.providers.github.url'))->toBe('https://api.github.com')
         ->and(config('git.batch.concurrency'))->toBe(25);
 });
 
-it('binds the registry as a singleton', function (): void {
-    expect(app(Registry::class))->toBe(app(Registry::class));
+it('binds the manager as a singleton', function (): void {
+    expect(app(GitManager::class))->toBe(app(GitManager::class));
 });
 
 it('registers the package commands', function (): void {

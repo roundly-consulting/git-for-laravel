@@ -14,7 +14,7 @@ use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
-use RoundlyConsulting\Git\Facades\Registry;
+use RoundlyConsulting\Git\Facades\Git;
 use RoundlyConsulting\Git\Interfaces\Provider;
 
 function appPrivateKey(): string
@@ -43,7 +43,7 @@ function mintFake(): array
 
 function githubAsApp(): Provider
 {
-    return Registry::githubApp(GithubApp::for(appId: '123', privateKey: appPrivateKey()));
+    return Git::githubApp(GithubApp::for(appId: '123', privateKey: appPrivateKey()));
 }
 
 it('looks an installation up as the app', function () {
@@ -113,7 +113,8 @@ it('finds an installation by organization and by user', function () {
 it('lists every installation of the app', function () {
     Http::fake(['*/app/installations*' => Http::response([installationPayload(), installationPayload(['id' => 2])])]);
 
-    expect(githubAsApp()->installations()->items)->toHaveCount(2);
+    expect(githubAsApp()->installations()->all()->items)->toHaveCount(2)
+        ->and(githubAsApp()->listInstallations()->items)->toHaveCount(2);
 });
 
 it('parses the ENVELOPED installation repositories response', function () {
@@ -134,7 +135,7 @@ it('parses the ENVELOPED installation repositories response', function () {
         ]],
     ])]);
 
-    $page = Registry::github(GithubAppToken::for('123', '999', appPrivateKey()))
+    $page = Git::github(GithubAppToken::for('123', '999', appPrivateKey()))
         ->installationRepositories();
 
     expect($page->items)->toHaveCount(1)
@@ -147,7 +148,7 @@ it('pages lazily through installation repositories', function () {
     Http::fake([...mintFake(), '*/installation/repositories*' => Http::response(['total_count' => 0, 'repositories' => []])]);
 
     expect(
-        Registry::github(GithubAppToken::for('123', '999', appPrivateKey()))
+        Git::github(GithubAppToken::for('123', '999', appPrivateKey()))
             ->allInstallationRepositories()
             ->all()
     )->toBe([]);
@@ -160,7 +161,8 @@ it('refuses installation calls on providers that have no app installations', fun
     // `Exception` at all, and a bare `Exception::class` here would still have let a
     // RuntimeException or an InvalidArgumentException through unnoticed.
     expect(fn () => gitlab()->installation('1'))->toThrow(FeatureNotSupportedException::class)
-        ->and(fn () => gitlab()->installations())->toThrow(FeatureNotSupportedException::class)
+        ->and(fn () => gitlab()->listInstallations())->toThrow(FeatureNotSupportedException::class)
+        ->and(fn () => gitlab()->installations()->all())->toThrow(FeatureNotSupportedException::class)
         ->and(fn () => gitlab()->organizationInstallation('acme-inc'))->toThrow(FeatureNotSupportedException::class)
         ->and(fn () => gitlab()->userInstallation('octocat'))->toThrow(FeatureNotSupportedException::class)
         ->and(fn () => gitlab()->installUrl())->toThrow(FeatureNotSupportedException::class)
@@ -179,7 +181,7 @@ it('builds an app clone url with a freshly minted token and the x-access-token u
     $credentials = GithubAppToken::for('123', '999', appPrivateKey())
         ->forScope(new InstallationTokenScope(repositoryIds: ['40823311']));
 
-    expect(Registry::github($credentials)->cloneUrlForRepository('acme-inc/platform-api', 'acme-inc', $credentials))
+    expect(Git::github($credentials)->cloneUrlForRepository('acme-inc/platform-api', 'acme-inc', $credentials))
         ->toBe('https://x-access-token:ghs_clone@github.com/acme-inc/platform-api.git');
 });
 
@@ -230,15 +232,15 @@ it('REFUSES to put the app jwt into a clone url', function () {
     // loudly rather than produce a URL that leaks it.
     $credentials = GithubApp::for('123', appPrivateKey());
 
-    expect(fn () => Registry::githubApp($credentials)->cloneUrlForRepository('acme/api', 'acme', $credentials))
+    expect(fn () => Git::githubApp($credentials)->cloneUrlForRepository('acme/api', 'acme', $credentials))
         ->toThrow(InvalidCredentialsException::class);
 });
 
 it('refuses an app-jwt endpoint called with an installation credential, and the reverse', function () {
     Http::preventStrayRequests();
 
-    $installation = Registry::github(GithubAppToken::for('123', '999', appPrivateKey()));
-    $app = Registry::githubApp(GithubApp::for('123', appPrivateKey()));
+    $installation = Git::github(GithubAppToken::for('123', '999', appPrivateKey()));
+    $app = Git::githubApp(GithubApp::for('123', appPrivateKey()));
 
     // Without these guards each of these reaches GitHub and comes back as its own opaque
     // 403 ("a JSON web token could not be decoded"), which names neither cause nor place.
@@ -265,21 +267,21 @@ it('keys the conditional cache per installation, not on an empty token value', f
     // on the token VALUE, which is the empty string for every app credential — so both
     // landed on one entry, and the only thing stopping one account's repository list from
     // being served to the other was GitHub never answering 304 across accounts.
-    Registry::github(GithubAppToken::for('123', '111', appPrivateKey()))->installationRepositories();
-    Registry::github(GithubAppToken::for('123', '222', appPrivateKey()))->installationRepositories();
+    Git::github(GithubAppToken::for('123', '111', appPrivateKey()))->installationRepositories();
+    Git::github(GithubAppToken::for('123', '222', appPrivateKey()))->installationRepositories();
 
     // The second installation is a cache MISS, so it must not replay the first's ETag.
     Http::assertNotSent(fn (Request $request): bool => $request->hasHeader('If-None-Match'));
 });
 
 it('mints a clone url through the fake so a consumer can assert it is authenticated', function () {
-    $registry = Registry::fake();
+    $fake = Git::fake();
 
     $credentials = GithubAppToken::for('123', '999', appPrivateKey());
 
-    expect($registry->github()->cloneUrlForRepository('acme/api', 'acme', $credentials))
+    expect($fake->github()->cloneUrlForRepository('acme/api', 'acme', $credentials))
         ->toContain('x-access-token:')
-        ->and(fn () => $registry->github()->cloneUrlForRepository('acme/api', 'acme', GithubApp::for('123', appPrivateKey())))
+        ->and(fn () => $fake->github()->cloneUrlForRepository('acme/api', 'acme', GithubApp::for('123', appPrivateKey())))
         ->toThrow(InvalidCredentialsException::class);
 });
 
@@ -291,7 +293,7 @@ it('authenticates githubApp() from config when no credential is passed', functio
 
     // The no-argument path: a consumer that configured the app once should not have to
     // rebuild the credential at every call site.
-    expect(Registry::githubApp()->installation('51234567')->accountLogin)->toBe('acme-inc');
+    expect(Git::githubApp()->installation('51234567')->accountLogin)->toBe('acme-inc');
 
     // Signed as the CONFIGURED app, not as the static GITHUB_TOKEN the same block holds.
     Http::assertSent(function (Request $request): bool {
@@ -311,12 +313,12 @@ it('names the missing app config key rather than failing as unauthenticated', fu
     config()->set('git.providers.github.app.private_key', appPrivateKey());
     config()->set("git.providers.github.app.{$missing}", null);
 
-    expect(fn () => Registry::githubApp())
+    expect(fn () => Git::githubApp())
         ->toThrow(InvalidCredentialsException::class, "git.providers.github.app.{$missing}");
 })->with(['id', 'private_key']);
 
 it('builds an install url through the fake', function () {
-    $registry = Registry::fake();
+    $fake = Git::fake();
 
-    expect($registry->githubApp()->installUrl('abc'))->toContain('installations/new?state=abc');
+    expect($fake->githubApp()->installUrl('abc'))->toContain('installations/new?state=abc');
 });
