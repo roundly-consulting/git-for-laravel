@@ -21,7 +21,9 @@ use RoundlyConsulting\Git\Dto\Page;
 use RoundlyConsulting\Git\Dto\PullRequest;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Enums\CommentTarget;
 use RoundlyConsulting\Git\Enums\Feature;
+use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Mapping\BitbucketMapper;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
@@ -222,9 +224,19 @@ class Bitbucket extends BaseProvider
         return $this->mapper()->pullRequest($response->json());
     }
 
+    /**
+     * Comment on a pull request. Bitbucket's issue tracker is not part of this driver, so
+     * a comment targeted at an issue is refused rather than posted to a pull request that
+     * happens to share its number.
+     */
     public function comment(string $path, NewComment $data): Comment
     {
         $this->guardSupported(Feature::CreateComment);
+
+        if ($data->target === CommentTarget::Issue) {
+            throw FeatureNotSupportedException::for('issue comments', $this->name());
+        }
+
         $this->guardAuthenticated();
 
         $response = $this->send('POST', $this->repositoryUrl($path)."/pullrequests/{$data->number}/comments", [

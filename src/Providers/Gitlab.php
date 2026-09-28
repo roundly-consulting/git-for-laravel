@@ -34,6 +34,7 @@ use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Enums\CommentTarget;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
@@ -487,14 +488,31 @@ class Gitlab extends BaseProvider
         return $this->mapper()->pullRequest($response->json());
     }
 
+    /**
+     * Comment on an issue or a merge request — which one `$data->target` says.
+     *
+     * GitLab numbers the two separately, so issue #3 and merge request !3 are different
+     * objects and there is nothing to infer the target from; posting to either by default
+     * would comment on the wrong object (or 404) half the time.
+     *
+     * @throws \InvalidArgumentException when the comment names no target
+     */
     public function comment(string $path, NewComment $data): Comment
     {
         $this->guardSupported(Feature::CreateComment);
         $this->guardAuthenticated();
 
+        $collection = match ($data->target) {
+            CommentTarget::Issue => 'issues',
+            CommentTarget::PullRequest => 'merge_requests',
+            null => throw new \InvalidArgumentException(
+                'GitLab numbers issues and merge requests separately: pass target: CommentTarget::Issue or CommentTarget::PullRequest.'
+            ),
+        };
+
         $response = $this->send(
             'POST',
-            '/api/v4/projects/'.$this->encode($path)."/merge_requests/{$data->number}/notes",
+            '/api/v4/projects/'.$this->encode($path)."/{$collection}/{$data->number}/notes",
             ['body' => $data->body],
         );
 

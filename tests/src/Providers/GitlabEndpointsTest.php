@@ -20,6 +20,7 @@ use RoundlyConsulting\Git\Dto\Issue;
 use RoundlyConsulting\Git\Dto\PullRequest;
 use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Tag;
+use RoundlyConsulting\Git\Enums\CommentTarget;
 use RoundlyConsulting\Git\Enums\ResourceState;
 
 it('lists merge requests as pull requests', function () {
@@ -139,7 +140,7 @@ it('comments, creates releases, tags and webhooks', function () {
         '*/hooks' => Http::response(['id' => 9, 'url' => 'https://hook', 'enable_ssl_verification' => true]),
     ]);
 
-    expect(gitlab()->comment('g/p', new NewComment(4, 'nice')))->toBeInstanceOf(Comment::class)->body->toBe('nice')
+    expect(gitlab()->comment('g/p', new NewComment(4, 'nice', CommentTarget::PullRequest)))->toBeInstanceOf(Comment::class)->body->toBe('nice')
         ->and(gitlab()->createRelease('g/p', new NewRelease('v2', 'Two'))->tagName)->toBe('v2')
         ->and(gitlab()->createTag('g/p', new NewTag('v2', 'main'))->sha)->toBe('tagsha')
         ->and(gitlab()->createWebhook('g/p', new NewWebhook('https://hook', ['push'], 'secret'))->id)->toBe('9');

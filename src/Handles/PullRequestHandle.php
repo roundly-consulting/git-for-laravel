@@ -10,6 +10,7 @@ use RoundlyConsulting\Git\Dto\Input\NewReview;
 use RoundlyConsulting\Git\Dto\PullRequest;
 use RoundlyConsulting\Git\Dto\PullRequestReview;
 use RoundlyConsulting\Git\Dto\PullRequestReviews;
+use RoundlyConsulting\Git\Enums\CommentTarget;
 use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
 use RoundlyConsulting\Git\Interfaces\Provider;
@@ -86,6 +87,6 @@ final readonly class PullRequestHandle
 
     public function comment(string $body): Comment
     {
-        return $this->provider->comment($this->path, new NewComment($this->number, $body));
+        return $this->provider->comment($this->path, new NewComment($this->number, $body, CommentTarget::PullRequest));
     }
 }

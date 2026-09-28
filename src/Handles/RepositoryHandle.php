@@ -112,7 +112,11 @@ final readonly class RepositoryHandle
         return $this->provider->issue($this->path, $number);
     }
 
-    /** Comment on an issue or pull request of this repository, by its number. */
+    /**
+     * Comment on an issue or pull request of this repository, by its number. Say which
+     * with `target:` — GitLab numbers issues and merge requests separately and refuses a
+     * comment that does not; `->pullRequest($n)->comment()` sets it for you.
+     */
     public function comment(NewComment $data): Comment
     {
         return $this->provider->comment($this->path, $data);
