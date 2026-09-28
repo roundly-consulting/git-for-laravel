@@ -481,11 +481,37 @@ it('comments on an issue', function () {
 it('creates a release and a tag', function () {
     Http::fake([
         '*/repos/o/r/releases' => Http::response(['id' => 5, 'tag_name' => 'v2', 'name' => 'Two', 'draft' => false, 'prerelease' => false]),
-        '*/repos/o/r/git/refs' => Http::response(['object' => ['sha' => 'tagsha'], 'url' => 'u']),
+        '*/repos/o/r/git/refs' => Http::response(['object' => ['sha' => str_repeat('a', 40)], 'url' => 'u']),
     ]);
 
     expect(github()->createRelease('o/r', new NewRelease('v2', 'Two'))->tagName)->toBe('v2')
-        ->and(github()->createTag('o/r', new NewTag('v2', 'tagsha'))->sha)->toBe('tagsha');
+        ->and(github()->createTag('o/r', new NewTag('v2', str_repeat('a', 40)))->sha)->toBe(str_repeat('a', 40));
+});
+
+it('resolves a branch to its head commit before tagging it', function () {
+    $sha = str_repeat('b', 40);
+
+    Http::fake([
+        '*/repos/o/r/commits/main' => Http::response(['sha' => $sha]),
+        '*/repos/o/r/git/refs' => Http::response(['ref' => 'refs/tags/v1.0.1', 'object' => ['sha' => $sha], 'url' => 'u']),
+    ]);
+
+    $tag = github()->repo('o/r')->createTag(new NewTag('v1.0.1', 'main'));
+
+    expect($tag->sha)->toBe($sha);
+    Http::assertSent(fn ($request): bool => $request->method() === 'POST'
+        && $request['ref'] === 'refs/tags/v1.0.1'
+        && $request['sha'] === $sha);
+});
+
+it('tags a full commit sha without looking it up', function () {
+    $sha = str_repeat('c', 40);
+
+    Http::fake(['*/repos/o/r/git/refs' => Http::response(['object' => ['sha' => $sha]])]);
+
+    github()->createTag('o/r', new NewTag('v3', $sha));
+
+    Http::assertSentCount(1);
 });
 
 it('creates and deletes a webhook', function () {

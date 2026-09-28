@@ -878,14 +878,23 @@ class Github extends BaseProvider
         return $this->mapper()->release($response->json());
     }
 
+    /**
+     * Create a lightweight tag pointing at `$data->ref` — a branch, a tag or a sha.
+     *
+     * GitHub's create-ref endpoint takes a commit SHA and nothing else (`sha: "main"` is a
+     * 422), so a ref that is not already a full sha is resolved first — the same reason
+     * {@see createBranch()} reads its base ref before creating anything.
+     */
     public function createTag(string $path, NewTag $data): Tag
     {
         $this->guardSupported(Feature::CreateTag);
         $this->guardAuthenticated();
 
+        $sha = $this->commitSha($path, $data->ref);
+
         $response = $this->send('POST', $this->repos($path).'/git/refs', [
             'ref' => "refs/tags/{$data->name}",
-            'sha' => $data->ref,
+            'sha' => $sha,
         ]);
 
         $ref = $response->json();
@@ -893,10 +902,20 @@ class Github extends BaseProvider
         return new Tag(
             provider: $this->providerName(),
             name: $data->name,
-            sha: $ref['object']['sha'] ?? $data->ref,
+            sha: $ref['object']['sha'] ?? $sha,
             url: $ref['url'] ?? null,
             raw: $ref,
         );
+    }
+
+    /** The commit a ref names — without a round trip when it already is a full sha. */
+    private function commitSha(string $path, string $ref): string
+    {
+        if (preg_match('/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i', $ref) === 1) {
+            return $ref;
+        }
+
+        return (string) $this->get($this->repos($path).'/commits/'.$this->refSegments('tag ref', $ref))->json('sha');
     }
 
     public function createWebhook(string $path, NewWebhook $data): Webhook
