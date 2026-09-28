@@ -213,7 +213,8 @@ class Github extends BaseProvider
      * GitHub echoes `state` back to the app's Setup URL alongside `installation_id`,
      * which is what lets the redirect that comes back be tied to the request that left.
      * Built here rather than in a consumer so nobody hand-composes a github.com URL —
-     * and so a GitHub Enterprise host follows the configured API URL.
+     * and so a GitHub Enterprise host follows the configured API URL (`/api/v3` on the
+     * web host for Enterprise Server, an `api.` host for github.com and GHE.com).
      *
      * @throws InvalidCredentialsException when no app slug is configured
      */
@@ -225,7 +226,10 @@ class Github extends BaseProvider
             throw InvalidCredentialsException::missingAppConfig($this->key(), 'slug');
         }
 
-        $url = rtrim($this->cloneBaseUrl(), '/')."/apps/{$slug}/installations/new";
+        // GitHub Enterprise Server serves app pages under `/github-apps/`, github.com and
+        // GHE.com under `/apps/`.
+        $apps = $this->isEnterpriseServer() ? 'github-apps' : 'apps';
+        $url = $this->webUrl()."/{$apps}/".rawurlencode($slug).'/installations/new';
 
         return $state === null || $state === '' ? $url : $url.'?state='.urlencode($state);
     }
@@ -998,7 +1002,7 @@ class Github extends BaseProvider
 
     protected function cloneBaseUrl(): string
     {
-        return str((string) config('git.providers.github.url'))->replace('api.', '')->toString();
+        return $this->webUrl();
     }
 
     /** @return list<Feature> */

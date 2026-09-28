@@ -582,6 +582,43 @@ abstract class BaseProvider implements Provider
         return rawurlencode(PathGuard::webhookId($this->providerName(), $id));
     }
 
+    /** The configured API base URL, or the forge's public one. */
+    protected function apiUrl(): string
+    {
+        $url = config("git.providers.{$this->key()}.url");
+
+        return is_string($url) && $url !== '' ? rtrim($url, '/') : $this->providerName()->apiBaseUrl();
+    }
+
+    /**
+     * The forge's WEB host, derived from its API URL — where clone URLs and app pages live.
+     *
+     * Two shapes exist: an API on its own `api.` host (`api.github.com`, `api.acme.ghe.com`,
+     * `api.bitbucket.org`), and GitHub Enterprise Server's API under `/api/v3` on the web
+     * host itself. Only a LEADING `api.` label is dropped — `git.api.acme.io` is a host
+     * name, not an API prefix — and only a trailing `/api/v3` path.
+     */
+    protected function webUrl(): string
+    {
+        $api = $this->apiUrl();
+        $parts = parse_url($api);
+
+        if (! is_array($parts) || ! isset($parts['host'])) {
+            return $api;
+        }
+
+        $host = str_starts_with($parts['host'], 'api.') ? substr($parts['host'], 4) : $parts['host'];
+        $path = preg_replace('#/api/v3$#', '', rtrim($parts['path'] ?? '', '/')) ?? '';
+
+        return ($parts['scheme'] ?? 'https').'://'.$host.(isset($parts['port']) ? ':'.$parts['port'] : '').$path;
+    }
+
+    /** Whether the API URL is a GitHub Enterprise Server one (`…/api/v3`). */
+    protected function isEnterpriseServer(): bool
+    {
+        return str_ends_with((string) parse_url($this->apiUrl(), PHP_URL_PATH), '/api/v3');
+    }
+
     protected function featureNotSupported(): never
     {
         throw FeatureNotSupportedException::for(

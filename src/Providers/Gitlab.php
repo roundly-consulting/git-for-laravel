@@ -667,9 +667,10 @@ class Gitlab extends BaseProvider
         );
     }
 
+    /** GitLab's API lives under `/api/v4` on the web host, so the configured URL IS the web host. */
     protected function cloneBaseUrl(): string
     {
-        return (string) config('git.providers.gitlab.url');
+        return $this->apiUrl();
     }
 
     protected function hasMorePages(Response $response, int $count, int $perPage): bool

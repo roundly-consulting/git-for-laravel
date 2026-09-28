@@ -312,7 +312,7 @@ class Bitbucket extends BaseProvider
 
     protected function cloneBaseUrl(): string
     {
-        return str((string) config('git.providers.bitbucket.url'))->replace('api.', '')->toString();
+        return $this->webUrl();
     }
 
     protected function pageParameters(int $page, int $perPage): array
