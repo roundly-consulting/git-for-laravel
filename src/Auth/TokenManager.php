@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Auth;
 
+use Closure;
+use Illuminate\Contracts\Cache\LockProvider;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Contracts\Cache\Repository as CacheRepository;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -26,6 +29,12 @@ final class TokenManager
 {
     /** Seconds shaved off the real expiry so a token is never used at the edge. */
     private const SAFETY_MARGIN = 60;
+
+    /** Seconds a refresh lock is held at most — longer than any refresh round trip. */
+    private const LOCK_TTL = 60;
+
+    /** Seconds a worker waits for another worker's refresh before refreshing itself. */
+    private const LOCK_WAIT = 15;
 
     public function installationToken(GithubAppToken $cred): string
     {
@@ -115,6 +124,27 @@ final class TokenManager
             && $cred->expiresAt !== null
             && $cred->expiresAt->getTimestamp() - self::SAFETY_MARGIN > time()) {
             return $cred->accessTokenValue;
+        }
+
+        return $this->exclusively("{$key}:refresh", fn (): string => $this->refreshUnlessRefreshed($cred, $key));
+    }
+
+    /**
+     * The refresh itself, run while holding the lock — after reading the cache AGAIN.
+     *
+     * Whoever waited for the lock may find that the holder already refreshed: with a
+     * rotating provider its own refresh token is now spent, and presenting it would come
+     * back `invalid_grant` (and announce a second, conflicting `OauthTokenRefreshed`).
+     * The entry the holder wrote under THIS key carries the fresh access token, so it is
+     * answered from there instead.
+     */
+    private function refreshUnlessRefreshed(OauthToken $cred, string $key): string
+    {
+        /** @var array{token: string, expires_at: int, refresh_token?: string}|null $cached */
+        $cached = $this->cache()->get($key);
+
+        if (is_array($cached) && $cached['expires_at'] > time()) {
+            return $cached['token'];
         }
 
         // A rotation the caller has not caught up with yet. The entry under THIS key was
@@ -215,6 +245,36 @@ final class TokenManager
     private function oauthCacheKey(#[SensitiveParameter] string $refreshToken): string
     {
         return 'git:oauth:'.(new Digest)->hex($refreshToken);
+    }
+
+    /**
+     * Run `$callback` holding a cache lock, so one worker at a time refreshes a grant.
+     *
+     * Waits up to {@see LOCK_WAIT} seconds. A holder stuck past that is treated as gone and
+     * the refresh runs anyway — exactly what happened before this lock existed, and better
+     * than failing a request over a lock. A store that cannot lock runs it directly.
+     *
+     * @param  Closure(): string  $callback
+     */
+    private function exclusively(string $name, Closure $callback): string
+    {
+        $store = $this->cache()->getStore();
+
+        if (! $store instanceof LockProvider) {
+            return $callback();
+        }
+
+        $token = null;
+
+        try {
+            $store->lock($name, self::LOCK_TTL)->block(self::LOCK_WAIT, function () use ($callback, &$token): void {
+                $token = $callback();
+            });
+        } catch (LockTimeoutException) {
+            return $callback();
+        }
+
+        return $token ?? $callback();
     }
 
     private function store(string $key, string $token, int $expiresAt, ?string $refreshToken = null): void
