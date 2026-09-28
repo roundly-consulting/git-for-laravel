@@ -28,6 +28,12 @@ use RoundlyConsulting\Git\Query\CommitQuery;
 
 class Bitbucket extends BaseProvider
 {
+    /** @var array<string, list<string>> canonical event => Bitbucket's events for it */
+    private const WEBHOOK_EVENTS = [
+        'push' => ['repo:push'],
+        'pull_request' => ['pullrequest:created', 'pullrequest:updated', 'pullrequest:fulfilled', 'pullrequest:rejected'],
+    ];
+
     protected function key(): string
     {
         return 'bitbucket';
@@ -250,6 +256,9 @@ class Bitbucket extends BaseProvider
             'url' => $data->url,
             'active' => $data->active,
             'events' => $this->mapWebhookEvents($data->events),
+            // Without it Bitbucket signs nothing, and the package's own route — which
+            // requires `X-Hub-Signature` — answers 403 to every delivery.
+            ...($data->secret !== null ? ['secret' => $data->secret] : []),
         ]);
 
         $hook = $response->json();
@@ -285,7 +294,7 @@ class Bitbucket extends BaseProvider
             provider: $this->providerName(),
             id: (string) $hook['uuid'],
             url: $hook['url'] ?? '',
-            events: $hook['events'] ?? [],
+            events: $this->canonicalWebhookEvents(is_array($hook['events'] ?? null) ? $hook['events'] : []),
             active: (bool) ($hook['active'] ?? true),
             raw: $hook,
         ), $hooks);
@@ -355,15 +364,56 @@ class Bitbucket extends BaseProvider
     }
 
     /**
+     * The canonical event names in Bitbucket's own; a native `scope:action` passes through.
+     *
+     * `pull_request` is every transition the package's route reports as a pull request
+     * event — opened, updated, merged and declined — as GitHub's `pull_request` is, not
+     * just the opening.
+     *
      * @param  list<string>  $events
      * @return list<string>
      */
     protected function mapWebhookEvents(array $events): array
     {
-        return array_map(fn (string $event): string => match ($event) {
-            'push' => 'repo:push',
-            'pull_request' => 'pullrequest:created',
-            default => $event,
-        }, $events);
+        $mapped = [];
+
+        foreach ($events as $event) {
+            foreach (self::WEBHOOK_EVENTS[$event] ?? [$event] as $native) {
+                $mapped[] = $native;
+            }
+        }
+
+        return array_values(array_unique($mapped));
+    }
+
+    /**
+     * Bitbucket's event names read back as the canonical ones `createWebhook()` takes.
+     *
+     * @param  array<mixed>  $events
+     * @return list<string>
+     */
+    protected function canonicalWebhookEvents(array $events): array
+    {
+        $canonical = [];
+
+        foreach ($events as $event) {
+            if (! is_string($event)) {
+                continue;
+            }
+
+            $name = $event;
+
+            foreach (self::WEBHOOK_EVENTS as $candidate => $natives) {
+                if (in_array($event, $natives, true)) {
+                    $name = $candidate;
+
+                    break;
+                }
+            }
+
+            $canonical[] = $name;
+        }
+
+        return array_values(array_unique($canonical));
     }
 }

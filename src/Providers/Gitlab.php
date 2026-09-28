@@ -35,6 +35,7 @@ use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
+use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
 use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Mapping\GitlabMapper;
@@ -43,6 +44,13 @@ use RoundlyConsulting\Git\Query\CommitQuery;
 
 class Gitlab extends BaseProvider
 {
+    /** @var array<string, string> canonical event => GitLab's hook flag for it */
+    private const WEBHOOK_EVENTS = [
+        'push' => 'push_events',
+        'pull_request' => 'merge_requests_events',
+        'issues' => 'issues_events',
+    ];
+
     protected function key(): string
     {
         return 'gitlab';
@@ -540,28 +548,36 @@ class Gitlab extends BaseProvider
         );
     }
 
+    /**
+     * Register a project hook.
+     *
+     * GitLab subscribes by boolean flag, not by event list: `push` is `push_events`,
+     * `pull_request` is `merge_requests_events`, `issues` is `issues_events`, and a native
+     * `*_events` flag passes through. `push_events` is always sent — GitLab defaults it to
+     * TRUE, so leaving it out would subscribe a pull-request-only hook to every push.
+     *
+     * @throws \InvalidArgumentException for an event GitLab has no flag for
+     * @throws FeatureNotSupportedException for an inactive hook — GitLab cannot create one
+     */
     public function createWebhook(string $path, NewWebhook $data): Webhook
     {
         $this->guardSupported(Feature::CreateWebhook);
         $this->guardAuthenticated();
 
+        if (! $data->active) {
+            throw FeatureNotSupportedException::for('inactive webhooks', $this->name());
+        }
+
         $response = $this->send('POST', '/api/v4/projects/'.$this->encode($path).'/hooks', [
             'url' => $data->url,
-            'push_events' => in_array('push', $data->events, true),
+            ...$this->webhookFlags($data->events),
             'token' => $data->secret,
             'enable_ssl_verification' => true,
         ]);
 
         $hook = $response->json();
 
-        return new Webhook(
-            provider: $this->providerName(),
-            id: (string) $hook['id'],
-            url: $hook['url'] ?? $data->url,
-            events: $data->events,
-            active: (bool) ($hook['enable_ssl_verification'] ?? $data->active),
-            raw: $hook,
-        );
+        return $this->mapWebhook($hook, $data->url);
     }
 
     public function deleteWebhook(string $path, string $id): void
@@ -581,14 +597,61 @@ class Gitlab extends BaseProvider
         /** @var list<array<string, mixed>> $hooks */
         $hooks = $this->get('/api/v4/projects/'.$this->encode($path).'/hooks')->json();
 
-        return array_map(fn (array $hook): Webhook => new Webhook(
+        return array_map(fn (array $hook): Webhook => $this->mapWebhook($hook, ''), $hooks);
+    }
+
+    /**
+     * The event flags for a hook, every known one set explicitly.
+     *
+     * @param  list<string>  $events
+     * @return array<string, bool>
+     */
+    private function webhookFlags(array $events): array
+    {
+        $flags = array_fill_keys(array_values(self::WEBHOOK_EVENTS), false);
+
+        foreach ($events as $event) {
+            $flag = self::WEBHOOK_EVENTS[$event]
+                ?? (str_ends_with($event, '_events') && preg_match('/^[a-z_]+$/', $event) === 1 ? $event : null);
+
+            if ($flag === null) {
+                throw new \InvalidArgumentException(
+                    "GitLab has no webhook flag for the event [{$event}]. Use push, pull_request, issues, or a native `*_events` flag."
+                );
+            }
+
+            $flags[$flag] = true;
+        }
+
+        return $flags;
+    }
+
+    /**
+     * A hook as the canonical DTO: events read back from its flags, and active from its
+     * alert status — GitLab disables a failing hook (`disabled`, `temporarily_disabled`);
+     * `enable_ssl_verification` says nothing about whether it fires.
+     *
+     * @param  array<string, mixed>  $hook
+     */
+    private function mapWebhook(array $hook, string $fallbackUrl): Webhook
+    {
+        $canonical = array_flip(self::WEBHOOK_EVENTS);
+        $events = [];
+
+        foreach ($hook as $key => $value) {
+            if (str_ends_with($key, '_events') && $value === true) {
+                $events[] = $canonical[$key] ?? $key;
+            }
+        }
+
+        return new Webhook(
             provider: $this->providerName(),
             id: (string) $hook['id'],
-            url: $hook['url'] ?? '',
-            events: ($hook['push_events'] ?? false) ? ['push'] : [],
-            active: (bool) ($hook['enable_ssl_verification'] ?? true),
+            url: is_string($hook['url'] ?? null) ? $hook['url'] : $fallbackUrl,
+            events: $events,
+            active: ($hook['alert_status'] ?? 'executable') === 'executable',
             raw: $hook,
-        ), $hooks);
+        );
     }
 
     public function cloneUrlForRepository(string $path, string $username, Credentials $credentials): string
