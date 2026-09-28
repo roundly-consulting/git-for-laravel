@@ -64,6 +64,9 @@ use RoundlyConsulting\Git\Http\RateLimitStatusParser;
 use RoundlyConsulting\Git\Interfaces\Provider;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
+use RoundlyConsulting\Git\Support\Settings;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use Throwable;
 
 abstract class BaseProvider implements Provider
@@ -648,7 +651,7 @@ abstract class BaseProvider implements Provider
         [$times, $backoff] = $this->retrySettings($http);
 
         $request = Http::withOptions($this->options($http))
-            ->timeout(is_int($http['timeout'] ?? null) ? $http['timeout'] : 10)
+            ->timeout($this->timeoutSetting($http))
             ->retry($read ? $times : 1, $backoff, $this->retryable(...), throw: false)
             ->baseUrl(is_string($http['url'] ?? null) ? $http['url'] : $this->providerName()->apiBaseUrl())
             ->acceptJson()
@@ -675,12 +678,9 @@ abstract class BaseProvider implements Provider
             return [];
         }
 
-        $concurrency = config('git.batch.concurrency');
-        $concurrency = is_int($concurrency) && $concurrency > 0 ? $concurrency : 25;
-
         $outcomes = [];
 
-        foreach (array_chunk($specs, $concurrency, true) as $chunk) {
+        foreach (array_chunk($specs, $this->batchConcurrency(), true) as $chunk) {
             foreach ($this->resolveChunk($chunk) as $key => $outcome) {
                 $outcomes[$key] = $outcome;
             }
@@ -778,7 +778,7 @@ abstract class BaseProvider implements Provider
         [$times, $backoff] = $this->retrySettings($http);
 
         $request = $request->withOptions($this->options($http))
-            ->timeout(is_int($http['timeout'] ?? null) ? $http['timeout'] : 10)
+            ->timeout($this->timeoutSetting($http))
             ->retry($times, $backoff, $this->retryable(...), throw: false)
             ->baseUrl(is_string($http['url'] ?? null) ? $http['url'] : $this->providerName()->apiBaseUrl())
             ->acceptJson()
@@ -891,21 +891,52 @@ abstract class BaseProvider implements Provider
     }
 
     /**
+     * Attempts and backoff (ms) for a read. `.env` delivers both as strings, which are
+     * read as the integers they spell; anything else is refused naming the key.
+     *
      * @param  array<string, mixed>  $http
      * @return array{0: int, 1: int}
+     *
+     * @throws InvalidConfigurationException
      */
     protected function retrySettings(array $http): array
     {
-        $retry = $http['retry'] ?? 1;
+        $key = "git.providers.{$this->key()}.retry";
+        $retry = $http['retry'] ?? null;
 
         if (is_array($retry)) {
             return [
-                is_int($retry['times'] ?? null) ? $retry['times'] : 1,
-                is_int($retry['backoff'] ?? null) ? $retry['backoff'] : 0,
+                Settings::integer("{$key}.times", $retry['times'] ?? null, 0, 100, 1),
+                Settings::integer("{$key}.backoff", $retry['backoff'] ?? null, 0, 600_000, 0),
             ];
         }
 
-        return [(int) $retry, 0];
+        return [Settings::integer($key, $retry, 0, 100, 1), 0];
+    }
+
+    /**
+     * The request timeout in seconds (`0` = none, as in Guzzle).
+     *
+     * @param  array<string, mixed>  $http
+     *
+     * @throws InvalidConfigurationException
+     */
+    protected function timeoutSetting(array $http): int
+    {
+        return Settings::integer("git.providers.{$this->key()}.timeout", $http['timeout'] ?? null, 0, 3600, 10);
+    }
+
+    /**
+     * How many pooled requests one `batch()` round trip issues at once.
+     *
+     * @return int<1, max>
+     *
+     * @throws InvalidConfigurationException
+     */
+    protected function batchConcurrency(): int
+    {
+        // The validator already refuses anything below 1; `max()` states it to the type system.
+        return max(1, Settings::integer('git.batch.concurrency', config('git.batch.concurrency'), 1, 1000, 25));
     }
 
     /**
@@ -988,7 +1019,7 @@ abstract class BaseProvider implements Provider
 
     protected function log(string $method, string $url, int $status, float $startedAt): void
     {
-        if (! config('git.logging.enabled', false)) {
+        if (! Config::boolean('git.logging.enabled')) {
             return;
         }
 

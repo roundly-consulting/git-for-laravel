@@ -10,6 +10,7 @@ use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
 use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Interfaces\Provider;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use SensitiveParameter;
 
 /**
@@ -95,7 +96,7 @@ final class Webhooks
 
     private function derivedUrl(): string
     {
-        if (! config('git.webhooks.enabled')) {
+        if (! Config::boolean('git.webhooks.enabled')) {
             throw new InvalidArgumentException(
                 'Cannot derive the webhook URL: enable [git.webhooks.enabled] or pass an explicit $url.'
             );

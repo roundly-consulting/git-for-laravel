@@ -7,6 +7,8 @@ namespace RoundlyConsulting\Git\Http;
 use Illuminate\Contracts\Cache\Repository;
 use Illuminate\Support\Facades\Cache;
 use RoundlyConsulting\Crypto\Hash\Digest;
+use RoundlyConsulting\Git\Support\Settings;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 use SensitiveParameter;
 
 /**
@@ -21,7 +23,7 @@ final class ConditionalCache
 
     public function enabled(): bool
     {
-        return (bool) config('git.cache.enabled', false);
+        return Config::boolean('git.cache.enabled');
     }
 
     /**
@@ -53,7 +55,7 @@ final class ConditionalCache
         $this->store()->put(
             $cacheKey,
             ['etag' => $etag, 'body' => $body],
-            (int) config('git.cache.ttl', 3600),
+            Settings::integer('git.cache.ttl', config('git.cache.ttl'), 1, PHP_INT_MAX, 3600),
         );
     }
 

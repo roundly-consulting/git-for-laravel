@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Git\Concerns;
 use Closure;
 use Illuminate\Http\Client\Response;
 use RoundlyConsulting\Git\Exceptions\RateLimitExceededException;
+use RoundlyConsulting\Git\Support\Settings;
 use RoundlyConsulting\HttpClientRateLimits\Enums\Timespan;
 use RoundlyConsulting\HttpClientRateLimits\Exceptions\RateLimitExceededException as HttpRateLimitExceededException;
 use RoundlyConsulting\HttpClientRateLimits\Facades\RateLimits;
@@ -28,8 +29,11 @@ trait InteractsWithRateLimits
     {
         /** @var array<string, mixed> $config */
         $config = config("git.providers.{$provider}.rateLimits", []);
+        $key = "git.providers.{$provider}.rateLimits";
 
-        if (($config['enabled'] ?? true) === false) {
+        // Booleans and integers arrive from `.env` as strings (`0`, `off`, `5000`); they
+        // are read as what they spell, never as a truthy string.
+        if (! Settings::boolean("{$key}.enabled", $config['enabled'] ?? null, true)) {
             return null;
         }
 
@@ -37,11 +41,11 @@ trait InteractsWithRateLimits
         $owner = (string) ($config['owner'] ?? 'app');
 
         $rateLimit = RateLimits::make(new Limit(
-            maxAttempts: (int) ($config['maxAttempts'] ?? 60),
+            maxAttempts: Settings::integer("{$key}.maxAttempts", $config['maxAttempts'] ?? null, 1, PHP_INT_MAX, 60),
             timespan: $timespan,
         ))->by("git:{$provider}:{$owner}");
 
-        if (($config['adaptive'] ?? true) === true) {
+        if (Settings::boolean("{$key}.adaptive", $config['adaptive'] ?? null, true)) {
             $rateLimit->adaptive();
         }
 

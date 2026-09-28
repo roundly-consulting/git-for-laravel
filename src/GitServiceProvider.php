@@ -12,11 +12,13 @@ use RoundlyConsulting\Git\Commands\WebhookCommand;
 use RoundlyConsulting\Git\Mapping\BitbucketMapper;
 use RoundlyConsulting\Git\Mapping\GithubMapper;
 use RoundlyConsulting\Git\Mapping\GitlabMapper;
+use RoundlyConsulting\Git\Support\Settings;
 use RoundlyConsulting\Git\Webhooks\Mapping\BitbucketWebhookMapper;
 use RoundlyConsulting\Git\Webhooks\Mapping\GithubWebhookMapper;
 use RoundlyConsulting\Git\Webhooks\Mapping\GitlabWebhookMapper;
 use RoundlyConsulting\PackageToolkit\Package;
 use RoundlyConsulting\PackageToolkit\PackageServiceProvider;
+use RoundlyConsulting\PackageToolkit\Support\Config;
 
 final class GitServiceProvider extends PackageServiceProvider
 {
@@ -35,8 +37,8 @@ final class GitServiceProvider extends PackageServiceProvider
             ->contributesToAbout(static fn (): array => [
                 'Providers' => self::credentialedProviders(),
                 'Rate limiting' => self::throttledProviders(),
-                'Webhooks' => config('git.webhooks.enabled') ? (string) config('git.webhooks.path', 'git/webhooks') : 'OFF',
-                'Conditional caching' => config('git.cache.enabled') ? 'ON' : 'OFF',
+                'Webhooks' => Config::boolean('git.webhooks.enabled') ? (string) config('git.webhooks.path', 'git/webhooks') : 'OFF',
+                'Conditional caching' => Config::boolean('git.cache.enabled') ? 'ON' : 'OFF',
             ]);
     }
 
@@ -79,7 +81,7 @@ final class GitServiceProvider extends PackageServiceProvider
     {
         $enabled = array_keys(array_filter(
             self::providers(),
-            static fn (array $provider): bool => ($provider['rateLimits']['enabled'] ?? true) !== false,
+            static fn (array $provider): bool => Settings::boolean('git.providers.*.rateLimits.enabled', $provider['rateLimits']['enabled'] ?? null, true),
         ));
 
         return $enabled === [] ? 'OFF' : implode(', ', $enabled);

@@ -169,8 +169,9 @@ return [
     |
     */
     'webhooks' => [
-        // Cast so a `0`/`1` style env still reads as a strict boolean.
-        'enabled' => (bool) env('GIT_WEBHOOKS_ENABLED', false),
+        // Coerced here, not cast: the route is registered only while this is a strict
+        // boolean, and `(bool) 'off'` is true. `1/true/on/yes` enable it, anything else not.
+        'enabled' => filter_var(env('GIT_WEBHOOKS_ENABLED', false), FILTER_VALIDATE_BOOL),
         'path' => env('GIT_WEBHOOKS_PATH', 'git/webhooks'),
         'middleware' => ['api'],
     ],
