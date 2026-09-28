@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Git\Commands;
 
 use Illuminate\Console\Command;
+use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\GitManager;
 
@@ -33,7 +34,13 @@ final class RateLimitCommand extends Command
             return self::FAILURE;
         }
 
-        $provider->user();
+        // Any authenticated read carries the rate-limit headers. An installation token
+        // cannot read `/user` (403), so a configured GitHub App asks its installation.
+        if ($git->credentials($name) instanceof GithubAppToken) {
+            $provider->installationRepositories(1);
+        } else {
+            $provider->user();
+        }
 
         $status = $provider->rateLimit();
 

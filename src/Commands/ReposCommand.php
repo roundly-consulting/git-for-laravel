@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Git\Commands;
 
 use Illuminate\Console\Command;
+use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\GitManager;
@@ -13,7 +14,7 @@ final class ReposCommand extends Command
 {
     protected $signature = 'git:repos {provider} {--json}';
 
-    protected $description = 'List the authenticated user\'s repositories for a provider';
+    protected $description = 'List the repositories the configured credential can reach (a GitHub App: its installation\'s)';
 
     public function handle(GitManager $git): int
     {
@@ -34,7 +35,11 @@ final class ReposCommand extends Command
             return self::FAILURE;
         }
 
-        $repositories = $provider->repositories();
+        // An installation token has no user behind it — `/user/repos` answers 403 — so a
+        // configured GitHub App lists what its installation can reach instead.
+        $repositories = $git->credentials($name) instanceof GithubAppToken
+            ? $provider->installationRepositories()
+            : $provider->repositories();
 
         if ($this->option('json')) {
             $this->line((string) json_encode($repositories->collect()->map->toArray()->all()));
