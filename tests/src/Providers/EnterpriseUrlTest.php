@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use RoundlyConsulting\Git\Dto\Credentials\Token;
+use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
 
 /*
  * The web host (clone URLs, the app install page) is derived from the configured API URL.
@@ -45,3 +46,17 @@ it('derives the bitbucket web host by its leading api label only', function (): 
 
     expect(bitbucket()->repo('ws/app')->cloneUrl('jane', Token::from('secret')))->toBe('https://jane:secret@bitbucket.org/ws/app.git');
 });
+
+it('percent-encodes the credential inside a clone url', function (): void {
+    config()->set('git.providers.bitbucket.url', 'https://api.bitbucket.org');
+
+    $url = bitbucket()->repo('acme/app')->cloneUrl('me@acme.io', Token::from('p@ss/w:rd'));
+
+    expect($url)->toBe('https://me%40acme.io:p%40ss%2Fw%3Ard@bitbucket.org/acme/app.git')
+        ->and(parse_url($url, PHP_URL_HOST))->toBe('bitbucket.org')
+        ->and(rawurldecode((string) parse_url($url, PHP_URL_PASS)))->toBe('p@ss/w:rd');
+});
+
+it('guards the repository path of a flat clone url', function (): void {
+    bitbucket()->cloneUrlForRepository('acme/../victim', 'jane', Token::from('x'));
+})->throws(OutOfScopeException::class);

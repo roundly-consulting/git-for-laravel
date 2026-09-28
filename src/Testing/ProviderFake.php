@@ -49,6 +49,7 @@ use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Enums\ResourceState;
 use RoundlyConsulting\Git\Enums\ReviewEvent;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
+use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Interfaces\Provider;
 use RoundlyConsulting\Git\Query\CommitQuery;
 use RuntimeException;
@@ -804,6 +805,8 @@ final class ProviderFake implements Provider
             );
         }
 
+        $path = PathGuard::encode(PathGuard::repository($path));
+
         if ($credentials instanceof GithubAppToken) {
             return "https://x-access-token:ghs_fake@fake/{$path}.git";
         }
@@ -812,9 +815,13 @@ final class ProviderFake implements Provider
             ? 'fake-refreshed'
             : (string) $credentials->credentials?->getValue();
 
+        // Encoded exactly as the real drivers encode it, so a host test sees the URL
+        // production would hand to `git`.
+        $user = rawurlencode($username);
+
         return $secret === ''
-            ? "https://{$username}@fake/{$path}.git"
-            : "https://{$username}:{$secret}@fake/{$path}.git";
+            ? "https://{$user}@fake/{$path}.git"
+            : "https://{$user}:".rawurlencode($secret)."@fake/{$path}.git";
     }
 
     /** @return array<string, bool> */

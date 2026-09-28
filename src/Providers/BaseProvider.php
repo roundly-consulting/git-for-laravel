@@ -68,6 +68,7 @@ use RoundlyConsulting\Git\Query\CommitQuery;
 use RoundlyConsulting\Git\Support\Settings;
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\PackageToolkit\Support\Config;
+use SensitiveParameter;
 use Throwable;
 
 abstract class BaseProvider implements Provider
@@ -535,12 +536,19 @@ abstract class BaseProvider implements Provider
         return (string) $credentials->credentials?->getValue();
     }
 
-    protected function buildCloneUrl(string $baseUrl, string $user, string $secret, string $path): string
+    /**
+     * `scheme://user:secret@host/path.git`, with the userinfo percent-encoded.
+     *
+     * A username like `me@acme.io` or a password carrying `@`, `/` or `:` would otherwise
+     * move the host boundary — `https://me@acme.io:p@ss/w:rd@bitbucket.org/…` is a URL
+     * `git` cannot parse, or parses as a different host.
+     */
+    protected function buildCloneUrl(string $baseUrl, string $user, #[SensitiveParameter] string $secret, string $path): string
     {
         $host = str($baseUrl)->after('://')->rtrim('/')->toString();
         $scheme = str($baseUrl)->before('://')->toString();
 
-        return "{$scheme}://{$user}:{$secret}@{$host}/{$path}.git";
+        return $scheme.'://'.rawurlencode($user).':'.rawurlencode($secret).'@'.$host.'/'.$this->repositorySegments($path).'.git';
     }
 
     /**
