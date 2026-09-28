@@ -66,6 +66,13 @@ final class TokenManager
                 $cred->scope?->toPayload() ?? [],
             );
 
+        // A 401 is the app's own credential refused — a revoked or wrong private key, a
+        // clock skewed past the JWT's window. That is "reconnect required", the one
+        // meaning this package gives InvalidCredentialsException, never a retryable blip.
+        if ($response->status() === 401) {
+            throw InvalidCredentialsException::rejected('GitHub App', $response->toException());
+        }
+
         // The two failure modes a SCOPED mint adds, surfaced as the exception every
         // consumer of this package already catches. Letting `throw()` raise a raw
         // RequestException instead means a caller has to read a status code out of an
@@ -173,6 +180,15 @@ final class TokenManager
                 'client_id' => $cred->clientId,
                 'client_secret' => $cred->clientSecret,
             ]);
+
+        // The token endpoint refusing the client itself (a wrong or rotated secret) is a
+        // credential failure, like a 401 anywhere else in this package.
+        if ($response->status() === 401) {
+            throw InvalidCredentialsException::rejected(
+                (string) (parse_url($cred->tokenUrl, PHP_URL_HOST) ?: 'OAuth'),
+                $response->toException(),
+            );
+        }
 
         $response->throw();
 

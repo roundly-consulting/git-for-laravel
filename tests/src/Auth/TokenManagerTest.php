@@ -359,3 +359,23 @@ it('presents the STORED refresh token, not the one the caller is still holding',
 
     expect($sent->all())->toBe(['old-refresh', 'rotated-refresh']);
 });
+
+it('reports a rejected app key as a credential failure, not a raw http error', function () {
+    Http::fake(['*/app/installations/999/access_tokens' => Http::response(['message' => 'A JSON web token could not be decoded'], 401)]);
+
+    try {
+        app(TokenManager::class)->installationToken(appCredentials());
+        $this->fail('Expected the mint to fail.');
+    } catch (InvalidCredentialsException $exception) {
+        expect($exception->getMessage())->toContain('401')
+            ->and($exception->getPrevious())->toBeInstanceOf(RequestException::class);
+    }
+});
+
+it('reports a rejected oauth client as a credential failure', function () {
+    Http::fake(['https://token.test' => Http::response(['error' => 'invalid_client'], 401)]);
+
+    $cred = OauthToken::for('expired', 'refresh', 'client', 'wrong', 'https://token.test', Carbon::now()->subMinute());
+
+    app(TokenManager::class)->oauthToken($cred);
+})->throws(InvalidCredentialsException::class, '401');
