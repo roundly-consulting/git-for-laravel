@@ -858,7 +858,13 @@ rules make its behaviour predictable:
 | --- | --- |
 | List reads (`pullRequests`, `issues`, `tags`, `releases`, `contributors`, `branches`, `languages`) | an **empty page** — a real provider answer |
 | Single-resource reads (`repository`, `commit`, `contents`, `issue`, `release`, `installation`) | **throws**, naming the seeder to call |
-| Writes (`createPullRequest`, `comment`, `mergePullRequest`, …) | **synthesized from the input**, never throws |
+| Writes (`createPullRequest`, `comment`, `mergePullRequest`, …) | **synthesized from the input** |
+
+Each fake driver supports exactly what its real driver supports: `supports()`, `capabilities()`
+and `featureMatrix()` answer the same, and an operation the forge lacks throws the same
+`FeatureNotSupportedException` before anything is recorded — a fake Bitbucket refuses
+`->pullRequest(1)->merge()` just as Bitbucket does, so a test cannot pass against a flow
+production rejects.
 
 Seeders, all chainable: `seedRepositories` `seedRepository` `seedCreatedRepository`
 `seedCommits` `seedCommit` `seedBranches` `seedPullRequests` `seedPullRequest` `seedIssues`

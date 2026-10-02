@@ -48,6 +48,7 @@ use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Enums\ResourceState;
 use RoundlyConsulting\Git\Enums\ReviewEvent;
+use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Interfaces\Provider;
@@ -69,8 +70,13 @@ use RuntimeException;
  * - **Single-resource reads** THROW, naming the seeder to call. There is no honest
  *   default for "the repository under test", and returning a placeholder turns a missing
  *   `seedRepository()` into an assertion failure three lines later.
- * - **Writes** synthesize their result from the input they were given and never throw,
- *   so a host can drive a whole create/close/merge flow with no seeding at all.
+ * - **Writes** synthesize their result from the input they were given, so a host can
+ *   drive a whole create/close/merge flow with no seeding at all.
+ *
+ * Every call first passes the feature matrix of the REAL driver it stands in for — the
+ * list is read off that driver, not restated here — so a fake Bitbucket refuses a merge
+ * with the same FeatureNotSupportedException production throws, and a host test cannot
+ * pass against a flow its forge rejects.
  */
 final class ProviderFake implements Provider
 {
@@ -82,9 +88,13 @@ final class ProviderFake implements Provider
     /** @var array<string, BatchResult<mixed>> */
     private array $seededBatches = [];
 
+    /**
+     * @param  list<Feature>  $features  the real driver's feature list, which this fake enforces
+     */
     public function __construct(
         private readonly ProviderName $name,
         private readonly GitFake $git,
+        private readonly array $features,
     ) {}
 
     /** @param BatchResult<mixed> $result */
@@ -280,12 +290,26 @@ final class ProviderFake implements Provider
     /** @return list<Feature> */
     public function features(): array
     {
-        return Feature::cases();
+        return $this->features;
     }
 
     public function supports(Feature $feature): bool
     {
-        return true;
+        return in_array($feature, $this->features, true);
+    }
+
+    /**
+     * Throw what the real driver throws for a feature its forge lacks.
+     *
+     * @internal the fake drivers' (and their batch's) own guard.
+     *
+     * @throws FeatureNotSupportedException
+     */
+    public function ensureSupported(Feature $feature): void
+    {
+        if (! $this->supports($feature)) {
+            throw FeatureNotSupportedException::for(feature: $feature->value, provider: $this->name());
+        }
     }
 
     /** @return list<class-string<Credentials>> */
@@ -320,6 +344,8 @@ final class ProviderFake implements Provider
     /** @return Page<Repository> */
     public function repositories(int $perPage = 30): Page
     {
+        $this->ensureSupported(Feature::ListRepositories);
+
         $this->record('repositories', [$perPage]);
 
         return $this->page($this->list('repositories'), $perPage);
@@ -328,6 +354,8 @@ final class ProviderFake implements Provider
     /** @return LazyCollection<int, Repository> */
     public function allRepositories(int $perPage = 30): LazyCollection
     {
+        $this->ensureSupported(Feature::ListRepositories);
+
         $this->record('allRepositories', [$perPage]);
 
         return LazyCollection::make($this->list('repositories'));
@@ -345,6 +373,8 @@ final class ProviderFake implements Provider
      */
     public function installationRepositories(int $perPage = 30): Page
     {
+        $this->ensureSupported(Feature::ListInstallationRepositories);
+
         $this->record('installationRepositories', [$perPage]);
 
         return $this->page($this->list('repositories'), $perPage);
@@ -353,6 +383,8 @@ final class ProviderFake implements Provider
     /** @return LazyCollection<int, Repository> */
     public function allInstallationRepositories(int $perPage = 30): LazyCollection
     {
+        $this->ensureSupported(Feature::ListInstallationRepositories);
+
         $this->record('allInstallationRepositories', [$perPage]);
 
         return LazyCollection::make($this->list('repositories'));
@@ -360,6 +392,8 @@ final class ProviderFake implements Provider
 
     public function installation(string $id): Installation
     {
+        $this->ensureSupported(Feature::FindInstallation);
+
         $this->record('installation', [$id]);
 
         return $this->seededInstallation();
@@ -376,6 +410,8 @@ final class ProviderFake implements Provider
      */
     public function listInstallations(int $perPage = 30): Page
     {
+        $this->ensureSupported(Feature::ListInstallations);
+
         $this->record('listInstallations', [$perPage]);
 
         /** @var list<Installation> $items */
@@ -387,6 +423,8 @@ final class ProviderFake implements Provider
 
     public function organizationInstallation(string $organization): Installation
     {
+        $this->ensureSupported(Feature::FindInstallation);
+
         $this->record('organizationInstallation', [$organization]);
 
         return $this->seededInstallation();
@@ -394,6 +432,8 @@ final class ProviderFake implements Provider
 
     public function userInstallation(string $login): Installation
     {
+        $this->ensureSupported(Feature::FindInstallation);
+
         $this->record('userInstallation', [$login]);
 
         return $this->seededInstallation();
@@ -414,6 +454,12 @@ final class ProviderFake implements Provider
      */
     public function installUrl(?string $state = null): string
     {
+        // The real drivers only implement it where app installations exist; elsewhere the
+        // base driver refuses with the method's name, so the fake does the same.
+        if (! $this->supports(Feature::FindInstallation)) {
+            throw FeatureNotSupportedException::for(feature: 'installUrl', provider: $this->name());
+        }
+
         $this->record('installUrl', [$state]);
 
         $slug = config("git.providers.{$this->name->key()}.app.slug") ?: 'fake-app';
@@ -425,6 +471,8 @@ final class ProviderFake implements Provider
 
     public function repository(string $path): Repository
     {
+        $this->ensureSupported(Feature::FindRepository);
+
         $this->record('repository', [$path]);
 
         /** @var Repository */
@@ -434,6 +482,8 @@ final class ProviderFake implements Provider
     /** @return Page<string> */
     public function branches(string $path, int $perPage = 30): Page
     {
+        $this->ensureSupported(Feature::ListRepositoryBranches);
+
         $this->record('branches', [$path, $perPage]);
 
         return $this->page($this->list('branches'), $perPage);
@@ -441,6 +491,8 @@ final class ProviderFake implements Provider
 
     public function commit(string $path, string $commit): Commit
     {
+        $this->ensureSupported(Feature::FindCommit);
+
         $this->record('commit', [$path, $commit]);
 
         /** @var Commit */
@@ -456,6 +508,8 @@ final class ProviderFake implements Provider
      */
     public function commits(string $path): CommitQuery
     {
+        $this->ensureSupported(Feature::ListCommits);
+
         $this->record('commits', [$path]);
 
         return new CommitQuery(function (array $filters, int $page, int $perPage): Page {
@@ -468,6 +522,8 @@ final class ProviderFake implements Provider
     /** @return Page<PullRequest> */
     public function pullRequests(string $path, string $state = 'open', int $perPage = 30): Page
     {
+        $this->ensureSupported(Feature::ListPullRequests);
+
         $this->record('pullRequests', [$path, $state, $perPage]);
 
         return $this->page($this->list('pullRequests'), $perPage);
@@ -475,6 +531,8 @@ final class ProviderFake implements Provider
 
     public function pullRequest(string $path, int $number): PullRequest
     {
+        $this->ensureSupported(Feature::FindPullRequest);
+
         $this->record('pullRequest', [$path, $number]);
 
         return $this->seededPullRequest($number);
@@ -483,6 +541,8 @@ final class ProviderFake implements Provider
     /** @return Page<Issue> */
     public function issues(string $path, string $state = 'open', int $perPage = 30): Page
     {
+        $this->ensureSupported(Feature::ListIssues);
+
         $this->record('issues', [$path, $state, $perPage]);
 
         return $this->page($this->list('issues'), $perPage);
@@ -490,6 +550,8 @@ final class ProviderFake implements Provider
 
     public function issue(string $path, int $number): Issue
     {
+        $this->ensureSupported(Feature::FindIssue);
+
         $this->record('issue', [$path, $number]);
 
         /** @var Issue */
@@ -501,6 +563,8 @@ final class ProviderFake implements Provider
     /** @return Page<Tag> */
     public function tags(string $path, int $perPage = 30): Page
     {
+        $this->ensureSupported(Feature::ListTags);
+
         $this->record('tags', [$path, $perPage]);
 
         return $this->page($this->list('tags'), $perPage);
@@ -509,6 +573,8 @@ final class ProviderFake implements Provider
     /** @return Page<Release> */
     public function releases(string $path, int $perPage = 30): Page
     {
+        $this->ensureSupported(Feature::ListReleases);
+
         $this->record('releases', [$path, $perPage]);
 
         return $this->page($this->list('releases'), $perPage);
@@ -516,6 +582,8 @@ final class ProviderFake implements Provider
 
     public function release(string $path, string $tagOrId): Release
     {
+        $this->ensureSupported(Feature::FindRelease);
+
         $this->record('release', [$path, $tagOrId]);
 
         /** @var Release */
@@ -526,6 +594,8 @@ final class ProviderFake implements Provider
 
     public function contents(string $path, string $filePath, ?string $ref = null): FileContent
     {
+        $this->ensureSupported(Feature::FileContents);
+
         $this->record('contents', [$path, $filePath, $ref]);
 
         /** @var FileContent */
@@ -534,6 +604,8 @@ final class ProviderFake implements Provider
 
     public function compare(string $path, string $base, string $head): Comparison
     {
+        $this->ensureSupported(Feature::Compare);
+
         $this->record('compare', [$path, $base, $head]);
 
         /** @var Comparison */
@@ -549,6 +621,8 @@ final class ProviderFake implements Provider
     /** @return Page<Contributor> */
     public function contributors(string $path, int $perPage = 30): Page
     {
+        $this->ensureSupported(Feature::ListContributors);
+
         $this->record('contributors', [$path, $perPage]);
 
         return $this->page($this->list('contributors'), $perPage);
@@ -557,6 +631,8 @@ final class ProviderFake implements Provider
     /** @return array<string, int> */
     public function languages(string $path): array
     {
+        $this->ensureSupported(Feature::Languages);
+
         $this->record('languages', [$path]);
 
         /** @var array<string, int> */
@@ -574,6 +650,8 @@ final class ProviderFake implements Provider
      */
     public function searchRepositories(string $query, int $perPage = 30): Page
     {
+        $this->ensureSupported(Feature::SearchRepositories);
+
         $this->record('searchRepositories', [$query, $perPage]);
 
         /** @var list<Repository> $items */
@@ -584,6 +662,12 @@ final class ProviderFake implements Provider
 
     public function createRepository(NewRepository $data): Repository
     {
+        $this->ensureSupported(Feature::CreateRepository);
+
+        if ($data->template !== null) {
+            $this->ensureSupported(Feature::GenerateFromTemplate);
+        }
+
         $this->record('createRepository', [$data]);
 
         // The seeded override still wins outright — a consumer that pinned the answer
@@ -610,6 +694,8 @@ final class ProviderFake implements Provider
 
     public function createBranch(string $path, NewBranch $data): string
     {
+        $this->ensureSupported(Feature::CreateBranch);
+
         $this->record('createBranch', [$path, $data]);
 
         return "refs/heads/{$data->name}";
@@ -617,6 +703,8 @@ final class ProviderFake implements Provider
 
     public function createFile(string $path, NewFile $data): Commit
     {
+        $this->ensureSupported(Feature::CreateFile);
+
         $this->record('createFile', [$path, $data]);
 
         return $this->writtenCommit($data->message);
@@ -624,6 +712,8 @@ final class ProviderFake implements Provider
 
     public function updateFile(string $path, UpdatedFile $data): Commit
     {
+        $this->ensureSupported(Feature::UpdateFile);
+
         $this->record('updateFile', [$path, $data]);
 
         return $this->writtenCommit($data->message);
@@ -631,6 +721,8 @@ final class ProviderFake implements Provider
 
     public function createPullRequest(string $path, NewPullRequest $data): PullRequest
     {
+        $this->ensureSupported(Feature::CreatePullRequest);
+
         $this->record('createPullRequest', [$path, $data]);
 
         /** @var PullRequest */
@@ -658,6 +750,8 @@ final class ProviderFake implements Provider
      */
     public function closePullRequest(string $path, int $number): PullRequest
     {
+        $this->ensureSupported(Feature::ClosePullRequest);
+
         $this->record('closePullRequest', [$path, $number]);
 
         $pullRequest = $this->seededPullRequest($number);
@@ -681,6 +775,8 @@ final class ProviderFake implements Provider
 
     public function approvePullRequest(string $path, int $number, ?string $body = null): string
     {
+        $this->ensureSupported(Feature::ApprovePullRequest);
+
         $this->record('approvePullRequest', [$path, $number, $body]);
 
         /** @var string */
@@ -697,6 +793,8 @@ final class ProviderFake implements Provider
      */
     public function reviewPullRequest(string $path, int $number, NewReview $data): PullRequestReview
     {
+        $this->ensureSupported(Feature::ReviewPullRequest);
+
         $this->record('reviewPullRequest', [$path, $number, $data]);
 
         /** @var PullRequestReview */
@@ -717,6 +815,8 @@ final class ProviderFake implements Provider
 
     public function pullRequestReviews(string $path, int $number, int $perPage = 100, int $maxPages = 5): PullRequestReviews
     {
+        $this->ensureSupported(Feature::ListPullRequestReviews);
+
         $this->record('pullRequestReviews', [$path, $number, $perPage, $maxPages]);
 
         /** @var list<PullRequestReview> $reviews */
@@ -735,6 +835,8 @@ final class ProviderFake implements Provider
         ?string $title = null,
         ?string $message = null,
     ): string {
+        $this->ensureSupported(Feature::MergePullRequest);
+
         $this->record('mergePullRequest', [$path, $number, $method, $sha, $title, $message]);
 
         /** @var string */
@@ -743,6 +845,8 @@ final class ProviderFake implements Provider
 
     public function comment(string $path, NewComment $data): Comment
     {
+        $this->ensureSupported(Feature::CreateComment);
+
         $this->record('comment', [$path, $data]);
 
         /** @var Comment */
@@ -757,6 +861,8 @@ final class ProviderFake implements Provider
 
     public function createRelease(string $path, NewRelease $data): Release
     {
+        $this->ensureSupported(Feature::CreateRelease);
+
         $this->record('createRelease', [$path, $data]);
 
         /** @var Release */
@@ -775,6 +881,8 @@ final class ProviderFake implements Provider
 
     public function createTag(string $path, NewTag $data): Tag
     {
+        $this->ensureSupported(Feature::CreateTag);
+
         $this->record('createTag', [$path, $data]);
 
         return new Tag(
@@ -830,7 +938,7 @@ final class ProviderFake implements Provider
         $capabilities = [];
 
         foreach (Feature::cases() as $feature) {
-            $capabilities[$feature->value] = true;
+            $capabilities[$feature->value] = $this->supports($feature);
         }
 
         return $capabilities;
@@ -838,33 +946,47 @@ final class ProviderFake implements Provider
 
     public function supportsAll(Feature ...$features): bool
     {
+        foreach ($features as $feature) {
+            if (! $this->supports($feature)) {
+                return false;
+            }
+        }
+
         return true;
     }
 
     public function supportsAny(Feature ...$features): bool
     {
-        return $features !== [];
+        foreach ($features as $feature) {
+            if ($this->supports($feature)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** @return list<FeatureInfo> */
     public function featureMatrix(): array
     {
-        return array_map(fn (Feature $feature): FeatureInfo => $feature->info(true), Feature::cases());
+        return array_map(fn (Feature $feature): FeatureInfo => $feature->info($this->supports($feature)), Feature::cases());
     }
 
     /** @return list<FeatureInfo> */
     public function featureInfo(): array
     {
-        return $this->featureMatrix();
+        return array_map(fn (Feature $feature): FeatureInfo => $feature->info(), $this->features);
     }
 
     public function batch(): Batch
     {
-        return new BatchFake($this->name, $this->git, $this->seededBatches);
+        return new BatchFake($this, $this->git, $this->seededBatches);
     }
 
     public function createWebhook(string $path, NewWebhook $data): Webhook
     {
+        $this->ensureSupported(Feature::CreateWebhook);
+
         $this->record('createWebhook', [$path, $data]);
 
         /** @var Webhook|null $seeded */
@@ -881,12 +1003,16 @@ final class ProviderFake implements Provider
 
     public function deleteWebhook(string $path, string $id): void
     {
+        $this->ensureSupported(Feature::DeleteWebhook);
+
         $this->record('deleteWebhook', [$path, $id]);
     }
 
     /** @return list<Webhook> */
     public function listWebhooks(string $path): array
     {
+        $this->ensureSupported(Feature::ListWebhooks);
+
         $this->record('listWebhooks', [$path]);
 
         /** @var list<Webhook> $hooks */

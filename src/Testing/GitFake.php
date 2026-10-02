@@ -66,10 +66,22 @@ final class GitFake extends GitManager
         return $this->fakeFor($this->resolveProviderName($provider));
     }
 
-    /** The one fake driver per provider — seed it before the code under test runs. */
+    /**
+     * The one fake driver per provider — seed it before the code under test runs.
+     *
+     * It enforces the feature list of the real driver the container resolves for that
+     * provider, so the fake supports exactly what production does.
+     */
     public function fakeFor(ProviderName $name): ProviderFake
     {
-        return $this->providers[$name->key()] ??= new ProviderFake($name, $this);
+        if (! isset($this->providers[$name->key()])) {
+            /** @var Provider $real */
+            $real = $this->container->make($name->providerClass());
+
+            $this->providers[$name->key()] = new ProviderFake($name, $this, $real->features());
+        }
+
+        return $this->providers[$name->key()];
     }
 
     /**
