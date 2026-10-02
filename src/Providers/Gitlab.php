@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Git\Providers;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\LazyCollection;
+use InvalidArgumentException;
 use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
@@ -392,7 +393,7 @@ class Gitlab extends BaseProvider
      * than dropped: a dropped namespace creates the project in the caller's personal
      * namespace, which looks like success and is the wrong place.
      *
-     * @throws \InvalidArgumentException when the owner is not a numeric namespace id
+     * @throws InvalidArgumentException when the owner is not a numeric namespace id
      */
     public function createRepository(NewRepository $data): Repository
     {
@@ -408,7 +409,7 @@ class Gitlab extends BaseProvider
         $this->guardAuthenticated();
 
         if ($data->owner !== null && ! ctype_digit($data->owner)) {
-            throw new \InvalidArgumentException(
+            throw new InvalidArgumentException(
                 "GitLab needs a numeric namespace id for the owner, got [{$data->owner}]."
             );
         }
@@ -506,7 +507,7 @@ class Gitlab extends BaseProvider
      * objects and there is nothing to infer the target from; posting to either by default
      * would comment on the wrong object (or 404) half the time.
      *
-     * @throws \InvalidArgumentException when the comment names no target
+     * @throws InvalidArgumentException when the comment names no target
      */
     public function comment(string $path, NewComment $data): Comment
     {
@@ -516,7 +517,7 @@ class Gitlab extends BaseProvider
         $collection = match ($data->target) {
             CommentTarget::Issue => 'issues',
             CommentTarget::PullRequest => 'merge_requests',
-            null => throw new \InvalidArgumentException(
+            null => throw new InvalidArgumentException(
                 'GitLab numbers issues and merge requests separately: pass target: CommentTarget::Issue or CommentTarget::PullRequest.'
             ),
         };
@@ -585,7 +586,7 @@ class Gitlab extends BaseProvider
      * `*_events` flag passes through. `push_events` is always sent — GitLab defaults it to
      * TRUE, so leaving it out would subscribe a pull-request-only hook to every push.
      *
-     * @throws \InvalidArgumentException for an event GitLab has no flag for
+     * @throws InvalidArgumentException for an event GitLab has no flag for
      * @throws FeatureNotSupportedException for an inactive hook — GitLab cannot create one
      */
     public function createWebhook(string $path, NewWebhook $data): Webhook
@@ -644,7 +645,7 @@ class Gitlab extends BaseProvider
                 ?? (str_ends_with($event, '_events') && preg_match('/^[a-z_]+$/', $event) === 1 ? $event : null);
 
             if ($flag === null) {
-                throw new \InvalidArgumentException(
+                throw new InvalidArgumentException(
                     "GitLab has no webhook flag for the event [{$event}]. Use push, pull_request, issues, or a native `*_events` flag."
                 );
             }
