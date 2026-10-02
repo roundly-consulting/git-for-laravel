@@ -53,8 +53,8 @@ php artisan vendor:publish --tag="git-routes"
 ## Configuration
 
 The published `config/git.php` holds one block per provider plus shared blocks for caching,
-logging, and webhooks. Every value is backed by an environment variable, and the package
-works with zero configuration.
+logging, webhooks and batching. Almost every value is backed by an environment variable, and the
+package works with zero configuration.
 
 ```php
 return [
@@ -108,42 +108,47 @@ return [
 ];
 ```
 
-| Key | Type | Default | Purpose |
-|---|---|---|---|
-| `providers.<name>.url` | string | provider API base URL | Base URL for the provider's API. |
-| `providers.<name>.token` | string\|null | `null` | Default access token (`Git::github()` uses it). |
-| `providers.<name>.webhook_secret` | string\|null | `null` | Secret used to verify incoming webhooks. |
-| `providers.<name>.timeout` | int | `10` | HTTP request timeout in seconds. |
-| `providers.<name>.retry` | array\|int | `{times:1, backoff:0}` | Attempts and backoff (ms) for a read that hits a 429/5xx or a dropped connection; writes are never retried. |
-| `providers.<name>.rateLimits.enabled` | bool | `true` | Client-side throttling on/off; `false` sends with no limiter. |
-| `providers.<name>.rateLimits.owner` | string | `app` | Client-side throttle bucket key (`git:<provider>:<owner>`). |
-| `providers.<name>.rateLimits.maxAttempts` | int | provider quota | Max requests per timespan. |
-| `providers.<name>.rateLimits.timespan` | string | provider window | `second`, `minute`, `hour`, or `day`. |
-| `providers.<name>.rateLimits.adaptive` | bool | `true` | Honour the provider's own `Retry-After` / `X-RateLimit-*` headers. |
-| `providers.<name>.rateLimits.max_wait` | int\|null | `null` | Max defer in ms before failing fast; `null` waits/paces instead. |
-| `providers.<name>.rateLimits.jitter` | int\|null | `null` | Random jitter in ms added to each defer. |
-| `cache.enabled` | bool | `false` | Store ETags and serve `304 Not Modified` from cache. |
-| `cache.store` | string\|null | default store | Cache store used for conditional requests. |
-| `cache.ttl` | int | `3600` | Cached-response TTL in seconds. |
-| `logging.enabled` | bool | `false` | Log method/URL/status/duration (never tokens or bodies). |
-| `logging.channel` | string\|null | default channel | Log channel for request logging. |
-| `webhooks.enabled` | bool | `false` | Register the webhook receiving route. |
-| `webhooks.path` | string | `git/webhooks` | Base path for `POST {path}/{provider}`. |
-| `webhooks.middleware` | array | `['api']` | Middleware applied to the webhook route. |
-| `batch.concurrency` | int | `25` | Max concurrent requests per pool; larger inputs are chunked. |
-| `providers.github.app.id` | string\|null | `null` | GitHub App id; when set, `Git::github()` mints installation tokens. |
-| `providers.github.app.installation_id` | string\|null | `null` | GitHub App installation id. |
-| `providers.github.app.private_key` | string\|null | `null` | GitHub App private key — a PEM string or a file path. |
-| `providers.<name>.oauth.client_id` | string\|null | `null` | OAuth client id, read by `OauthToken::forProvider()`. |
-| `providers.<name>.oauth.client_secret` | string\|null | `null` | OAuth client secret, read by `OauthToken::forProvider()`. |
-| `providers.<name>.oauth.token_url` | string | provider token URL | OAuth token endpoint used to refresh access tokens. |
+`<name>` is `github`, `gitlab` or `bitbucket`; `*_` in an env var stands for `GITHUB_`,
+`GITLAB_` or `BITBUCKET_`.
 
-Environment variables: `GITHUB_TOKEN`, `GITLAB_TOKEN`, `BITBUCKET_TOKEN`,
-`*_WEBHOOK_SECRET`, `GIT_CACHE_ENABLED`, `GIT_LOGGING_ENABLED`, `GIT_WEBHOOKS_ENABLED`,
-`GIT_WEBHOOKS_PATH`, `GIT_BATCH_CONCURRENCY`, `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`,
-`GITHUB_APP_PRIVATE_KEY`, `GITHUB_APP_SLUG`, `GITHUB_OAUTH_CLIENT_ID`, `GITHUB_OAUTH_CLIENT_SECRET`,
-`GITHUB_OAUTH_TOKEN_URL` (plus the GitLab equivalents), and the per-provider
-`*_RETRY_TIMES` / `*_RETRY_BACKOFF` / timeout / rate-limit keys.
+| Key | Type | Default | Env | Purpose |
+|---|---|---|---|---|
+| `providers.<name>.url` | string | provider API base URL | `*_API_URL` | Base URL of the provider's API. For GitHub Enterprise Server use `https://ghe.example.com/api/v3`; clone and install URLs are then built on the web host `https://ghe.example.com`. |
+| `providers.<name>.token` | string\|null | `null` | `*_TOKEN` | Default access token (`Git::github()` uses it). |
+| `providers.<name>.webhook_secret` | string\|null | `null` | `*_WEBHOOK_SECRET` | Secret that verifies incoming webhooks and that `webhooks()->register()` sends by default. |
+| `providers.<name>.timeout` | int (0–3600) | `10` | `*_TIMEOUT` | HTTP request timeout in seconds (`0` = none). |
+| `providers.<name>.retry.times` | int (0–100) | `1` | `*_RETRY_TIMES` | Attempts for a read that hits a `429`/`5xx` or a dropped connection; writes are never retried. `retry` may also be a plain int (the attempts). |
+| `providers.<name>.retry.backoff` | int (0–600000) | `0` | `*_RETRY_BACKOFF` | Milliseconds between those attempts. |
+| `providers.<name>.rateLimits.enabled` | bool | `true` | `*_RATELIMIT_ENABLED` | Client-side throttling on/off; `false` sends with no limiter. |
+| `providers.<name>.rateLimits.owner` | string | `app` | `*_RATELIMIT_OWNER` | Client-side throttle bucket key (`git:<provider>:<owner>`). |
+| `providers.<name>.rateLimits.maxAttempts` | int (≥ 1) | `5000` / `10` / `1000` | `GITHUB_RATELIMIT` / `GITLAB_RATELIMIT` / `BITBUCKET_RATELIMIT` | Max requests per timespan. |
+| `providers.<name>.rateLimits.timespan` | string | `hour` / `second` / `hour` | `*_RATELIMIT_TIMESPAN` | `second`, `minute`, `hour`, or `day`. |
+| `providers.<name>.rateLimits.adaptive` | bool | `true` | `*_RATELIMIT_ADAPTIVE` | Honour the provider's own `Retry-After` / `X-RateLimit-*` headers. |
+| `providers.<name>.rateLimits.max_wait` | int\|null | `null` | `*_RATELIMIT_MAX_WAIT` | Max defer in ms before failing fast; `null` waits/paces instead. |
+| `providers.<name>.rateLimits.jitter` | int\|null | `null` | `*_RATELIMIT_JITTER` | Random jitter in ms added to each defer. |
+| `providers.<name>.options` | array | `['headers' => ['User-Agent' => …]]` | `GIT_USER_AGENT` (falls back to `APP_NAME`), `GITHUB_API_VERSION` | Guzzle request options applied to every request; GitHub also sends `X-GitHub-Api-Version` (`2022-11-28`). |
+| `providers.github.app.id` | string\|null | `null` | `GITHUB_APP_ID` | GitHub App id. |
+| `providers.github.app.installation_id` | string\|null | `null` | `GITHUB_APP_INSTALLATION_ID` | GitHub App installation id. With `id` and `private_key` also set, `Git::github()` mints installation tokens. |
+| `providers.github.app.private_key` | string\|null | `null` | `GITHUB_APP_PRIVATE_KEY` | GitHub App private key — a PEM string or a file path. |
+| `providers.github.app.slug` | string\|null | `null` | `GITHUB_APP_SLUG` | The app's public slug; `installations()->installUrl()` needs it. |
+| `providers.github.app.permissions` | array | `contents: write`, `pull_requests: write`, `metadata: read` | — | Permission set `InstallationTokenScope::forRepositories()` mints with. |
+| `providers.github.oauth.client_id` / `providers.gitlab.oauth.client_id` | string\|null | `null` | `GITHUB_OAUTH_CLIENT_ID` / `GITLAB_OAUTH_CLIENT_ID` | OAuth client id, read by `OauthToken::forProvider()`. |
+| `providers.github.oauth.client_secret` / `providers.gitlab.oauth.client_secret` | string\|null | `null` | `GITHUB_OAUTH_CLIENT_SECRET` / `GITLAB_OAUTH_CLIENT_SECRET` | OAuth client secret, read by `OauthToken::forProvider()`. |
+| `providers.github.oauth.token_url` / `providers.gitlab.oauth.token_url` | string | provider token URL | `GITHUB_OAUTH_TOKEN_URL` / `GITLAB_OAUTH_TOKEN_URL` | OAuth token endpoint used to refresh access tokens. |
+| `cache.enabled` | bool | `false` | `GIT_CACHE_ENABLED` | Store ETags and serve `304 Not Modified` from cache. |
+| `cache.store` | string\|null | default store | `GIT_CACHE_STORE` | Cache store for conditional requests and minted App/OAuth tokens. |
+| `cache.ttl` | int (≥ 1) | `3600` | `GIT_CACHE_TTL` | Cached-response TTL in seconds. |
+| `logging.enabled` | bool | `false` | `GIT_LOGGING_ENABLED` | Log method/URL/status/duration (never tokens or bodies). |
+| `logging.channel` | string\|null | default channel | `GIT_LOGGING_CHANNEL` | Log channel for request logging. |
+| `webhooks.enabled` | bool | `false` | `GIT_WEBHOOKS_ENABLED` | Register the webhook receiving route. |
+| `webhooks.path` | string | `git/webhooks` | `GIT_WEBHOOKS_PATH` | Base path for `POST {path}/{provider}`. |
+| `webhooks.middleware` | array | `['api']` | — | Middleware applied to the webhook route. |
+| `batch.concurrency` | int (1–1000) | `25` | `GIT_BATCH_CONCURRENCY` | Max concurrent requests per pool; larger inputs are chunked. |
+
+`.env` delivers every value as a string, and the package reads them as what they spell: an
+integer key takes a numeric string (`GITHUB_TIMEOUT=45` is 45 seconds) and throws
+package-toolkit's `InvalidConfigurationException` naming the key when the value is not an integer in its range; a
+boolean key reads `1`/`true`/`on`/`yes` as on and `0`/`false`/`off`/`no` as off.
 
 > App and OAuth tokens are cached so they survive across requests; point `cache.store` at a
 > shared store (Redis, database, file) rather than the `array` driver when you use them.
@@ -207,7 +212,7 @@ use RoundlyConsulting\Git\Enums\MergeMethod;
 
 $github = Git::github();                       // uses config('git.providers.github.token')
 $github = Git::github(Token::from('ghp_...')); // explicit override
-$gitlab = Git::provider('gitlab');             // by string, class-string, or ProviderName enum
+$gitlab = Git::provider('gitlab');             // by config key, built-in driver class, or ProviderName enum
 
 $repo = Git::github()->repo('acme/app');
 
@@ -228,7 +233,9 @@ credential). Anonymous callers get the forge's anonymous quota (60 requests an h
 
 **Errors.** A `401` — the forge refusing the credential itself — throws `InvalidCredentialsException`:
 "requires authentication" when none was configured, "rejected the credential" when the token is
-invalid, revoked, or expired (the forge's response is the exception's `getPrevious()`). Every other
+invalid, revoked, or expired (the forge's response is the exception's `getPrevious()`). The same
+goes for a `401` while minting a GitHub App installation token (a revoked or wrong app key) or
+refreshing an OAuth token. Every other
 refusal stays Laravel's `RequestException`, so you can read its status: a repository you cannot see
 is a `404` (GitHub hides private repositories from callers without access), and a throttled `403`
 or `429` stays retryable rather than being mistaken for a broken credential.
@@ -266,7 +273,7 @@ final class ShipRelease
 git is a remote-API client, so there are no action classes: the drivers *are* the use cases.
 The handles are thin — every handle method is the matching flat method on the driver's
 `Interfaces\Provider` contract with the path filled in — so you can also call that layer
-directly. It is the contract a custom driver implements and the fake doubles:
+directly. It is the contract every driver implements and the fake doubles:
 
 ```php
 $github = app(GitManager::class)->github();
@@ -277,24 +284,36 @@ $github->contents('acme/app', 'README.md', ref: 'main');
 
 ### Scoped handles refuse to leave their scope
 
-Every path a handle takes ends up inside a forge URL, so the handles check it first and throw
-`OutOfScopeException` (an `InvalidArgumentException`) instead of addressing some other resource:
+Every path a handle takes ends up inside a forge URL, so it is checked first and
+`OutOfScopeException` (an `InvalidArgumentException`) is thrown instead of addressing some other
+resource:
 
-- `repo()` refuses an empty path, an empty, `.` or `..` segment, and `?`, `#`, `\` or whitespace
-  — and a `Repository` object that belongs to another provider (a GitLab repository on
-  `Git::github()`).
+- `repo()` refuses an empty path, an empty, `.` or `..` segment, and `?`, `#`, `\`, a NUL byte
+  or whitespace — and a `Repository` object that belongs to another provider (a GitLab
+  repository on `Git::github()`).
 - `contents()`, `createFile()` and `updateFile()` refuse file paths with `.`/`..`/empty segments,
-  `?`, `#` or `\`; `commit()`, `release()` and `compare()` refuse such refs.
+  `?`, `#`, `\` or a NUL byte; `commit()`, `release()` and `compare()` refuse such refs, as does
+  any other ref that lands in a URL path (GitHub's `createBranch()` base ref and `createTag()` ref).
+- Every value is checked as given **and** after each percent-decoding, because the HTTP stack
+  decodes `%2e` and collapses dot segments before a request leaves: `%2e%2e/victim`,
+  `%252e%252e/victim` and `..%2Fvictim` are refused exactly like `../victim`. What passes is
+  percent-encoded segment by segment, so the forge receives the literal name you gave
+  (`docs/a b.md` → `docs/a%20b.md`, `100%.md` → `100%25.md`).
 - `pullRequest()` refuses a number below 1; `installations()->find()` a non-numeric id;
   `forOrganization()` / `forUser()` anything but a single segment.
+- `webhooks()->delete($id)` (and `git:webhook --delete=`) takes only the id shape the forge
+  issues — numeric on GitHub and GitLab, a braced `{uuid}` on Bitbucket — because the id lands in
+  a `DELETE` URL.
 
 ```php
-Git::github()->repo('acme/app/../billing'); // OutOfScopeException
-Git::github()->repo($gitlabRepository);     // OutOfScopeException: belongs to GitLab
+Git::github()->repo('acme/app/../billing');                    // OutOfScopeException
+Git::github()->repo('acme/app')->contents('%2e%2e/%2e%2e/x');  // OutOfScopeException
+Git::github()->repo('acme/app')->webhooks()->delete('1/../..'); // OutOfScopeException
+Git::github()->repo($gitlabRepository);                        // OutOfScopeException: belongs to GitLab
 ```
 
-The flat driver methods take their arguments as given — validate there yourself if you build
-paths from user input and skip the handles.
+The flat driver methods (`Git::github()->contents('acme/app', …)`) and `batch()` build their URLs
+through the same checks, so they refuse the same values.
 
 ### The authenticated user
 
@@ -308,8 +327,10 @@ $owner->avatar; // "https://github.com/images/error/octocat_happy.gif"
 
 ### Repositories (paginated)
 
-List endpoints return a `Page` and never silently truncate. Use `allRepositories()` for a
-lazily auto-paginating `LazyCollection`.
+List endpoints return a `Page` and never silently truncate: `hasMore` follows GitHub's
+`Link: rel="next"` header, and a page size above 100 — the forges' maximum — is capped to 100
+(the `Page` reports `perPage: 100`). A page size below 1 throws `InvalidArgumentException`. Use
+`allRepositories()` for a lazily auto-paginating `LazyCollection`.
 
 ```php
 $github = Git::github();
@@ -370,7 +391,7 @@ $repo->issue(3);                           // Issue
 $repo->tags();                             // Page<Tag>
 $repo->releases();                         // Page<Release>
 $repo->release('v1.0');
-$repo->contents('README.md', ref: 'main'); // FileContent (decoded)
+$repo->contents('README.md', ref: 'main'); // FileContent (decoded); no ref = the default branch
 $repo->compare('main', 'feature');         // Comparison
 $repo->contributors();                     // Page<Contributor>
 $repo->languages();                        // ['PHP' => 12345, ...]
@@ -437,8 +458,19 @@ $repo->createFile(new NewFile('ci.yml', '...', 'Add CI', 'feature/ci'));
 $pr = $repo->createPullRequest(new NewPullRequest('Add CI', 'feature/ci', 'main'));
 $repo->pullRequest($pr->number)->comment('LGTM');   // or $repo->comment(new NewComment($pr->number, 'LGTM'))
 $repo->createRelease(new NewRelease('v1.0', 'First release'));
-$repo->createTag(new NewTag('v1.0.1', 'main'));
+$repo->createTag(new NewTag('v1.0.1', 'main'));    // a branch, tag or commit sha
 ```
+
+- **`NewTag`'s ref** may be a branch, a tag or a sha. GitHub's tag endpoint takes only a commit
+  sha, so a branch or tag is first resolved to the commit it points at (a full sha is used as is).
+- **Comment targets.** GitHub comments on issues and pull requests through one endpoint, but
+  GitLab numbers issues and merge requests separately, so a GitLab comment must say which:
+  `new NewComment(3, 'Thanks', target: CommentTarget::Issue)` (or `CommentTarget::PullRequest`).
+  An untargeted GitLab comment throws `InvalidArgumentException` rather than guessing;
+  `->pullRequest($n)->comment()` sets the target for you. Bitbucket comments on pull requests only
+  and refuses `CommentTarget::Issue` with `FeatureNotSupportedException`.
+- **File writes return the commit they made** — its real sha, author and date — on GitHub and
+  GitLab alike.
 
 #### Creating a repository
 
@@ -579,6 +611,9 @@ $url = Git::github()->repo('octocat/Hello-World')->cloneUrl('octocat', Token::fr
 // https://token:ghp_...@github.com/octocat/Hello-World.git  (GitHub uses its own username)
 ```
 
+The username and secret are percent-encoded, so a credential containing `@`, `/` or `:` still
+yields a URL whose host is the forge (`me@acme.io` / `p@ss` → `https://me%40acme.io:p%40ss@…`).
+
 To clone with the credential git itself is configured with, read it off the manager:
 
 ```php
@@ -630,8 +665,11 @@ $github = Git::github(OauthToken::forProvider(
 ));
 ```
 
-When `git.providers.github.app.id` is configured, `Git::github()` builds a `GithubAppToken`
-automatically — no explicit credential needed. `Git::credentials(ProviderName::Github)` returns
+When `git.providers.github.app.id`, `app.installation_id` and `app.private_key` are **all**
+configured, `Git::github()` builds a `GithubAppToken` automatically — no explicit credential
+needed. With any of the three missing it falls back to the static `token` (or to no credential):
+an app configured only for `Git::githubApp()` (id + key, installation ids arriving per customer)
+is a normal setup, not an error. `Git::credentials(ProviderName::Github)` returns
 that same credential, and `->accessToken()` on it reads the live installation token (minting it
 when the cache is cold). Use a shared cache store (not the `array` driver) so minted tokens
 persist across requests.
@@ -660,6 +698,11 @@ Event::listen(OauthTokenRefreshed::class, function (OauthTokenRefreshed $event) 
 
 The event fires on every refresh, rotated or not; `rotated()` is the flag that says the stored
 value has to change. Do not log the event whole — it carries live tokens by design.
+
+Concurrent workers refresh **once**: on a cache store that supports locks (Redis, database, file,
+array, …) the refresh runs under a lock, and a worker that waited for it uses the token the
+holder just refreshed instead of presenting the spent refresh token again — so a rotating
+provider never answers `invalid_grant` to the loser of the race, and the event fires once.
 
 #### Repository-scoped tokens
 
@@ -762,7 +805,7 @@ Event::listen(PushReceived::class, function (PushReceived $event) {
     foreach ($event->commits() as $commit) {   // list<Commit>, canonical
         $commit->sha;
     }
-    $event->ref();          // 'refs/heads/main'
+    $event->ref();          // 'refs/heads/main' on every forge ('refs/tags/v1.0' for a tag)
     $event->repository();    // ?Repository
     $event->pusher();        // ?Author
 });
@@ -797,8 +840,8 @@ answers `false` — nothing verifies, rather than everything.
 
 `repo(...)->webhooks()` ties this app's inbound route to the provider's outbound create-webhook
 op: it derives the URL from the published `git.webhooks` route, defaults the secret to the
-configured `webhook_secret`, and is idempotent (a hook with the same URL is never created
-twice).
+configured `webhook_secret` — sent to every forge, so deliveries are signed and pass the route's
+verification — and is idempotent (a hook with the same URL is never created twice).
 
 ```php
 $webhooks = Git::github()->repo('acme/api')->webhooks();
@@ -807,9 +850,23 @@ $webhooks->register();                                 // returns the existing o
 $webhooks->register(events: ['push', 'pull_request']);
 $webhooks->all();                                      // list<Webhook>
 $webhooks->registered($url);                           // bool
-$webhooks->delete($id);
+$webhooks->delete($id);                                // numeric id; a braced {uuid} on Bitbucket
 $webhooks->deleteByUrl($url);
 ```
+
+Events use GitHub's names on every forge — `push`, `pull_request`, `issues` — and each driver
+subscribes to its own equivalents:
+
+| Event | GitHub | GitLab | Bitbucket |
+| --- | --- | --- | --- |
+| `push` | `push` | `push_events` | `repo:push` |
+| `pull_request` | `pull_request` | `merge_requests_events` | `pullrequest:created`, `:updated`, `:fulfilled`, `:rejected` |
+| `issues` | `issues` | `issues_events` | — |
+
+A forge's native name passes through as is (a GitLab `*_events` flag, a Bitbucket
+`scope:action`). GitLab refuses an event it has no flag for with `InvalidArgumentException`
+rather than dropping it, and cannot create an inactive hook (`FeatureNotSupportedException`).
+`all()` reads the events back under these canonical names.
 
 ### Artisan commands
 
@@ -819,6 +876,12 @@ php artisan git:rate-limit github
 php artisan git:commits github octocat/Hello-World --branch=main --since=2024-01-01
 php artisan git:webhook github acme/api [--url=] [--events=push] [--secret=] [--list] [--delete=ID]
 ```
+
+With a GitHub App installation configured, `git:repos` lists the installation's repositories
+(`/installation/repositories`) and `git:rate-limit` reads its quota from that endpoint — an
+installation token cannot call `/user`. `git:webhook --delete=` refuses an id that is not in the
+forge's shape, and `git:commits bitbucket … --since=` fails with a message (Bitbucket cannot
+filter commits by date); both exit `1` without sending a request.
 
 ### Testing without real HTTP
 
@@ -919,10 +982,29 @@ Git::capabilities(ProviderName::Bitbucket);                       // without aut
 
 ### Extending the manager
 
-`GitManager` is macroable, so you can register your own provider shortcuts:
+The three drivers — GitHub, GitLab and Bitbucket — are the providers this package speaks;
+`provider()` resolves only those (by config key, driver class or `ProviderName`). There are two
+extension points.
+
+`GitManager` is macroable, so you can register your own shortcuts on top of the drivers:
 
 ```php
-Git::macro('myHost', fn ($credentials = null) => $this->provider(MyProvider::class, $credentials));
+use RoundlyConsulting\Git\Facades\Git;
+use RoundlyConsulting\Git\Handles\RepositoryHandle;
+
+Git::macro('app', fn (): RepositoryHandle => $this->github()->repo('acme/app'));
+
+Git::app()->pullRequests(); // same as Git::github()->repo('acme/app')->pullRequests()
+```
+
+The drivers are resolved from the container and are not `final`, so you can swap a built-in one
+for a subclass — to add an endpoint, say. `Git::github()`, `Git::capabilities()` and the fake's
+feature matrix all pick the subclass up:
+
+```php
+use RoundlyConsulting\Git\Providers\Github;
+
+$this->app->bind(Github::class, AcmeGithub::class); // class AcmeGithub extends Github { … }
 ```
 
 ## Testing

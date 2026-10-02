@@ -44,8 +44,10 @@ return [
             ],
 
             // GitHub App authentication (self-refreshing installation tokens).
-            // When `id` is set, `Git::github()` mints installation tokens
-            // automatically. `private_key` may be a PEM string or a file path.
+            // When `id`, `installation_id` and `private_key` are all set,
+            // `Git::github()` mints installation tokens automatically; otherwise it
+            // uses `token`. `Git::githubApp()` needs only `id` + `private_key`.
+            // `private_key` may be a PEM string or a file path.
             'app' => [
                 'id' => env('GITHUB_APP_ID'),
                 'installation_id' => env('GITHUB_APP_INSTALLATION_ID'),
