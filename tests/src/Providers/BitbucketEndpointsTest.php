@@ -86,3 +86,28 @@ it('follows the cursor next url when auto-paginating', function () {
 
     expect(bitbucket()->allRepositories(perPage: 1)->count())->toBe(2);
 });
+
+it('refuses commit filters bitbucket cannot apply instead of dropping them', function (Closure $filter, string $named) {
+    Http::fake();
+
+    expect(fn () => $filter(bitbucket()->repo('acme/app')->commits()->branch('main'))->get())
+        ->toThrow(FeatureNotSupportedException::class, "Provider [Bitbucket] cannot filter commits by [{$named}]");
+
+    // Refused before any request: a silently unfiltered page is the bug.
+    Http::assertNothingSent();
+})->with([
+    'author' => [fn ($query) => $query->author('octocat'), 'author'],
+    'since' => [fn ($query) => $query->since('2024-01-01'), 'since'],
+    'until' => [fn ($query) => $query->until('2024-02-01'), 'until'],
+    'several' => [fn ($query) => $query->author('octocat')->since('2024-01-01'), 'author, since'],
+]);
+
+it('still sends the branch and path commit filters bitbucket supports', function () {
+    Http::fake(['*/commits*' => Http::response(['values' => []])]);
+
+    bitbucket()->repo('acme/app')->commits()->branch('main')->path('src/')->get();
+
+    Http::assertSent(fn ($request) => str_contains($request->url(), '/2.0/repositories/acme/app/commits')
+        && $request['include'] === 'main'
+        && $request['path'] === 'src/');
+});

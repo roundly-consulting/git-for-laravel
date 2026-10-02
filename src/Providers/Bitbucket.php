@@ -102,9 +102,22 @@ class Bitbucket extends BaseProvider
         );
     }
 
+    /**
+     * Bitbucket's commits endpoint filters by branch (`include`) and path only. An
+     * `author()`, `since()` or `until()` is refused rather than dropped: a page that
+     * silently ignored the filter reads as "these are the matching commits".
+     *
+     * @throws FeatureNotSupportedException when the query filters by author or date
+     */
     public function commits(string $path): CommitQuery
     {
         return new CommitQuery(function (array $filters, int $page, int $perPage) use ($path): Page {
+            $unsupported = array_values(array_intersect(['author', 'since', 'until'], array_keys($filters)));
+
+            if ($unsupported !== []) {
+                throw FeatureNotSupportedException::commitFilters($unsupported, $this->name(), 'a branch and a path');
+            }
+
             $query = [];
 
             if (isset($filters['branch'])) {

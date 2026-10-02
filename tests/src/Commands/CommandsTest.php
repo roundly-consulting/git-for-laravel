@@ -63,6 +63,17 @@ it('lists commits as a table', function () {
     $this->artisan('git:commits github o/r --branch=main')->assertExitCode(0);
 });
 
+it('fails the commits command cleanly when bitbucket cannot apply --since', function () {
+    config()->set('git.providers.bitbucket.token', 'token');
+    Http::fake();
+
+    $this->artisan('git:commits bitbucket acme/app --since=2024-01-01')
+        ->expectsOutputToContain('Provider [Bitbucket] cannot filter commits by [since]')
+        ->assertExitCode(1);
+
+    Http::assertNothingSent();
+});
+
 it('fails commits command for unknown provider and missing creds', function () {
     config()->set('git.providers.gitlab.token', null);
 

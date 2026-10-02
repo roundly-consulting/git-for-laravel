@@ -7,6 +7,7 @@ namespace RoundlyConsulting\Git\Commands;
 use Illuminate\Console\Command;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Enums\ProviderName;
+use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
 use RoundlyConsulting\Git\GitManager;
 use RoundlyConsulting\Git\Query\CommitQuery;
@@ -48,9 +49,18 @@ final class CommitsCommand extends Command
 
         $this->applyFilters($query);
 
+        try {
+            $commits = $query->collect();
+        } catch (FeatureNotSupportedException $exception) {
+            // Bitbucket cannot filter by date; say so instead of dumping a stack trace.
+            $this->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
+
         $this->table(
             ['SHA', 'Author', 'Message'],
-            $query->collect()->map(fn (Commit $commit): array => [
+            $commits->map(fn (Commit $commit): array => [
                 substr($commit->sha, 0, 8),
                 $commit->author->name,
                 str($commit->message)->limit(50)->toString(),

@@ -353,6 +353,10 @@ foreach ($repo->commits()->branch('main')->lazy() as $commit) {
 $commit = $repo->commit('6dcb09b...');
 ```
 
+GitHub and GitLab apply every filter. Bitbucket's commits endpoint filters by `branch()` and
+`path()` only, so on Bitbucket `author()`, `since()` and `until()` throw
+`FeatureNotSupportedException` when the query runs, rather than returning unfiltered commits.
+
 ### More read endpoints
 
 ```php
