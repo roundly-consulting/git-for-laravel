@@ -97,6 +97,16 @@ describe('the flat facade methods', function (): void {
             ->and($credentials instanceof GithubAppToken ? $credentials->installationId : null)->toBe('999');
     });
 
+    it('falls back to the static token until all three app keys are configured', function (): void {
+        config()->set('git.providers.github.token', 'ghp_static');
+        config()->set('git.providers.github.app.id', '123');
+        config()->set('git.providers.github.app.private_key', generateRsaKeypair()[0]);
+
+        // id + key without an installation id is the `githubApp()`-only setup, not an error.
+        expect(Git::credentials('github'))->toBeInstanceOf(Token::class)
+            ->and(Git::credentials('github')?->credentials?->getValue())->toBe('ghp_static');
+    });
+
     it('reads the live installation token off the configured credential', function (): void {
         config()->set('git.providers.github.app.id', '123');
         config()->set('git.providers.github.app.installation_id', '999');
