@@ -6,6 +6,7 @@ use Illuminate\Http\Client\RequestException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use RoundlyConsulting\Git\Exceptions\RateLimitExceededException;
+use RoundlyConsulting\Git\GitServiceProvider;
 use RoundlyConsulting\Git\Providers\Github;
 use RoundlyConsulting\HttpClientRateLimits\Facades\RateLimits;
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
@@ -117,7 +118,12 @@ it('turns logging on for an env-string on', function (): void {
     Log::shouldHaveReceived('debug')->once();
 });
 
-it('ships the webhook route flag as a strict boolean for any env spelling', function (string $value, bool $expected): void {
+/**
+ * Evaluate the shipped config file with `GIT_WEBHOOKS_ENABLED` set, exactly as a host boots
+ * it from `.env`, and hand back the webhook route switch.
+ */
+function webhookSwitchFromEnv(string $value): mixed
+{
     $_SERVER['GIT_WEBHOOKS_ENABLED'] = $_ENV['GIT_WEBHOOKS_ENABLED'] = $value;
 
     try {
@@ -126,12 +132,43 @@ it('ships the webhook route flag as a strict boolean for any env spelling', func
         unset($_SERVER['GIT_WEBHOOKS_ENABLED'], $_ENV['GIT_WEBHOOKS_ENABLED']);
     }
 
-    expect($config['webhooks']['enabled'])->toBe($expected);
+    return $config['webhooks']['enabled'];
+}
+
+/** Boot a fresh provider against the current config and report whether it loaded the route. */
+function bootsWebhookRoute(): bool
+{
+    $provider = new GitServiceProvider(app());
+    $provider->register();
+    $provider->boot();
+
+    app('router')->getRoutes()->refreshNameLookups();
+
+    return app('router')->getRoutes()->getByName('git.webhooks') !== null;
+}
+
+it('gates the webhook route on any env spelling of the switch', function (string $value, bool $expected): void {
+    config()->set('git.webhooks.enabled', webhookSwitchFromEnv($value));
+
+    expect(bootsWebhookRoute())->toBe($expected);
 })->with([
     ['off', false],
     ['no', false],
     ['0', false],
+    ['false', false],
     ['on', true],
     ['yes', true],
     ['1', true],
+    ['true', true],
 ]);
+
+it('throws on a webhook switch typo instead of reading it as off (strict config)', function (): void {
+    $value = webhookSwitchFromEnv('disabled');
+    config()->set('git.webhooks.enabled', $value);
+
+    expect($value)->toBe('disabled')
+        ->and(fn () => bootsWebhookRoute())->toThrow(
+            InvalidConfigurationException::class,
+            'Configuration value [git.webhooks.enabled] must be a boolean (true/false, 1/0, on/off or yes/no), [disabled] given.',
+        );
+});

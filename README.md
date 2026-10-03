@@ -148,7 +148,9 @@ return [
 `.env` delivers every value as a string, and the package reads them as what they spell: an
 integer key takes a numeric string (`GITHUB_TIMEOUT=45` is 45 seconds) and throws
 package-toolkit's `InvalidConfigurationException` naming the key when the value is not an integer in its range; a
-boolean key reads `1`/`true`/`on`/`yes` as on and `0`/`false`/`off`/`no` as off.
+boolean key reads `1`/`true`/`on`/`yes` as on and `0`/`false`/`off`/`no` as off, and throws the
+same exception for anything else (`GIT_WEBHOOKS_ENABLED=disabled` fails at boot rather than
+silently keeping the route off).
 
 > App and OAuth tokens are cached so they survive across requests; point `cache.store` at a
 > shared store (Redis, database, file) rather than the `array` driver when you use them.
