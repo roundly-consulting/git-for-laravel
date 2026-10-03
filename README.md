@@ -113,19 +113,19 @@ return [
 
 | Key | Type | Default | Env | Purpose |
 |---|---|---|---|---|
-| `providers.<name>.url` | string | provider API base URL | `*_API_URL` | Base URL of the provider's API. For GitHub Enterprise Server use `https://ghe.example.com/api/v3`; clone and install URLs are then built on the web host `https://ghe.example.com`. |
+| `providers.<name>.url` | string | provider API base URL | `*_API_URL` | Base URL of the provider's API. For GitHub Enterprise Server use `https://ghe.example.com/api/v3`; clone and install URLs are then built on the web host `https://ghe.example.com`. Unset uses the public API; a blank or non-string value throws. |
 | `providers.<name>.token` | string\|null | `null` | `*_TOKEN` | Default access token (`Git::github()` uses it). |
 | `providers.<name>.webhook_secret` | string\|null | `null` | `*_WEBHOOK_SECRET` | Secret that verifies incoming webhooks and that `webhooks()->register()` sends by default. |
 | `providers.<name>.timeout` | int (0–3600) | `10` | `*_TIMEOUT` | HTTP request timeout in seconds (`0` = none). |
 | `providers.<name>.retry.times` | int (0–100) | `1` | `*_RETRY_TIMES` | Attempts for a read that hits a `429`/`5xx` or a dropped connection; writes are never retried. `retry` may also be a plain int (the attempts). |
 | `providers.<name>.retry.backoff` | int (0–600000) | `0` | `*_RETRY_BACKOFF` | Milliseconds between those attempts. |
 | `providers.<name>.rateLimits.enabled` | bool | `true` | `*_RATELIMIT_ENABLED` | Client-side throttling on/off; `false` sends with no limiter. |
-| `providers.<name>.rateLimits.owner` | string | `app` | `*_RATELIMIT_OWNER` | Client-side throttle bucket key (`git:<provider>:<owner>`). |
+| `providers.<name>.rateLimits.owner` | string | `app` | `*_RATELIMIT_OWNER` | Client-side throttle bucket key (`git:<provider>:<owner>`). Blank or non-string throws. |
 | `providers.<name>.rateLimits.maxAttempts` | int (≥ 1) | `5000` / `10` / `1000` | `GITHUB_RATELIMIT` / `GITLAB_RATELIMIT` / `BITBUCKET_RATELIMIT` | Max requests per timespan. |
-| `providers.<name>.rateLimits.timespan` | string | `hour` / `second` / `hour` | `*_RATELIMIT_TIMESPAN` | `second`, `minute`, `hour`, or `day`. |
+| `providers.<name>.rateLimits.timespan` | string | `hour` / `second` / `hour` | `*_RATELIMIT_TIMESPAN` | `second`, `minute`, `hour`, or `day`; anything else throws (an unset key means `minute`). |
 | `providers.<name>.rateLimits.adaptive` | bool | `true` | `*_RATELIMIT_ADAPTIVE` | Honour the provider's own `Retry-After` / `X-RateLimit-*` headers. |
-| `providers.<name>.rateLimits.max_wait` | int\|null | `null` | `*_RATELIMIT_MAX_WAIT` | Max defer in ms before failing fast; `null` waits/paces instead. |
-| `providers.<name>.rateLimits.jitter` | int\|null | `null` | `*_RATELIMIT_JITTER` | Random jitter in ms added to each defer. |
+| `providers.<name>.rateLimits.max_wait` | int\|null | `null` | `*_RATELIMIT_MAX_WAIT` | Max defer in ms (`0` or more) before failing fast; `null` waits/paces instead. |
+| `providers.<name>.rateLimits.jitter` | int\|null | `null` | `*_RATELIMIT_JITTER` | Random jitter in ms (`0` or more) added to each defer; `null` adds none. |
 | `providers.<name>.options` | array | `['headers' => ['User-Agent' => …]]` | `GIT_USER_AGENT` (falls back to `APP_NAME`), `GITHUB_API_VERSION` | Guzzle request options applied to every request; GitHub also sends `X-GitHub-Api-Version` (`2022-11-28`). |
 | `providers.github.app.id` | string\|null | `null` | `GITHUB_APP_ID` | GitHub App id. |
 | `providers.github.app.installation_id` | string\|null | `null` | `GITHUB_APP_INSTALLATION_ID` | GitHub App installation id. With `id` and `private_key` also set, `Git::github()` mints installation tokens. |
@@ -136,12 +136,12 @@ return [
 | `providers.github.oauth.client_secret` / `providers.gitlab.oauth.client_secret` | string\|null | `null` | `GITHUB_OAUTH_CLIENT_SECRET` / `GITLAB_OAUTH_CLIENT_SECRET` | OAuth client secret, read by `OauthToken::forProvider()`. |
 | `providers.github.oauth.token_url` / `providers.gitlab.oauth.token_url` | string | provider token URL | `GITHUB_OAUTH_TOKEN_URL` / `GITLAB_OAUTH_TOKEN_URL` | OAuth token endpoint used to refresh access tokens. |
 | `cache.enabled` | bool | `false` | `GIT_CACHE_ENABLED` | Store ETags and serve `304 Not Modified` from cache. |
-| `cache.store` | string\|null | default store | `GIT_CACHE_STORE` | Cache store for conditional requests and minted App/OAuth tokens. |
+| `cache.store` | string\|null | default store | `GIT_CACHE_STORE` | Cache store for conditional requests and minted App/OAuth tokens. Blank or non-string throws. |
 | `cache.ttl` | int (≥ 1) | `3600` | `GIT_CACHE_TTL` | Cached-response TTL in seconds. |
 | `logging.enabled` | bool | `false` | `GIT_LOGGING_ENABLED` | Log method/URL/status/duration (never tokens or bodies). |
-| `logging.channel` | string\|null | default channel | `GIT_LOGGING_CHANNEL` | Log channel for request logging. |
-| `webhooks.enabled` | bool | `false` | `GIT_WEBHOOKS_ENABLED` | Register the webhook receiving route. |
-| `webhooks.path` | string | `git/webhooks` | `GIT_WEBHOOKS_PATH` | Base path for `POST {path}/{provider}`. |
+| `logging.channel` | string\|null | default channel | `GIT_LOGGING_CHANNEL` | Log channel for request logging. Blank or non-string throws. |
+| `webhooks.enabled` | bool | `false` | `GIT_WEBHOOKS_ENABLED` | Register the webhook receiving route. Unset (`GIT_WEBHOOKS_ENABLED=null`) means off — for the route, the URL `webhooks()->register()` derives, and `about` alike. |
+| `webhooks.path` | string | `git/webhooks` | `GIT_WEBHOOKS_PATH` | Base path for `POST {path}/{provider}`. Blank or non-string throws (a blank path would mount the receiver at the site root). |
 | `webhooks.middleware` | array | `['api']` | — | Middleware applied to the webhook route. |
 | `batch.concurrency` | int (1–1000) | `25` | `GIT_BATCH_CONCURRENCY` | Max concurrent requests per pool; larger inputs are chunked. |
 
@@ -150,7 +150,9 @@ integer key takes a numeric string (`GITHUB_TIMEOUT=45` is 45 seconds) and throw
 package-toolkit's `InvalidConfigurationException` naming the key when the value is not an integer in its range; a
 boolean key reads `1`/`true`/`on`/`yes` as on and `0`/`false`/`off`/`no` as off, and throws the
 same exception for anything else (`GIT_WEBHOOKS_ENABLED=disabled` fails at boot rather than
-silently keeping the route off).
+silently keeping the route off). The same goes for every other setting: a `timespan` outside
+`second`/`minute`/`hour`/`day`, a non-integer `max_wait` or `jitter`, and a blank or non-string
+string setting all throw naming the key. Only an unset (`null`) key takes its default.
 
 > App and OAuth tokens are cached so they survive across requests; point `cache.store` at a
 > shared store (Redis, database, file) rather than the `array` driver when you use them.
