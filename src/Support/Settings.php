@@ -27,7 +27,7 @@ final class Settings
     /** @throws InvalidConfigurationException when present but not an integer in range */
     public static function integer(string $key, mixed $value, int $min, int $max, int $default): int
     {
-        return Config::for([$key => $value])->intBetween($key, $min, $max, $default);
+        return Config::for([$key => $value])->integer($key, $default, min: $min, max: $max);
     }
 
     public static function boolean(string $key, mixed $value, bool $default): bool
