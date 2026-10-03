@@ -31,9 +31,9 @@ return [
                 'timespan' => env('GITHUB_RATELIMIT_TIMESPAN', 'hour'),
                 // Honour the provider's own Retry-After / X-RateLimit-* headers.
                 'adaptive' => env('GITHUB_RATELIMIT_ADAPTIVE', true),
-                // Max defer in ms before failing fast (null = wait/pace forever).
+                // Max defer in ms before failing fast (null or blank = wait/pace forever).
                 'max_wait' => env('GITHUB_RATELIMIT_MAX_WAIT'),
-                // Random jitter in ms added to each defer (null = none).
+                // Random jitter in ms added to each defer (null or blank = none).
                 'jitter' => env('GITHUB_RATELIMIT_JITTER'),
             ],
             'options' => [
@@ -172,7 +172,8 @@ return [
     */
     'webhooks' => [
         // Handed over raw and parsed strictly where it is read: `1/true/on/yes` enable the
-        // route, `0/false/off/no` keep it off, and anything else throws at boot.
+        // route, `0/false/off/no` keep it off, unset or blank means off, and anything else
+        // throws at boot.
         'enabled' => env('GIT_WEBHOOKS_ENABLED', false),
         'path' => env('GIT_WEBHOOKS_PATH', 'git/webhooks'),
         'middleware' => ['api'],
