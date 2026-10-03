@@ -127,7 +127,7 @@ return [
 | `providers.<name>.rateLimits.max_wait` | int\|null | `null` | `*_RATELIMIT_MAX_WAIT` | Max defer in ms (`0` or more) before failing fast; `null` waits/paces instead. |
 | `providers.<name>.rateLimits.jitter` | int\|null | `null` | `*_RATELIMIT_JITTER` | Random jitter in ms (`0` or more) added to each defer; `null` adds none. |
 | `providers.<name>.options` | array | `['headers' => ['User-Agent' => …]]` | `GIT_USER_AGENT` (falls back to `APP_NAME`), `GITHUB_API_VERSION` | Guzzle request options applied to every request; GitHub also sends `X-GitHub-Api-Version` (`2022-11-28`). |
-| `providers.github.app.id` | string\|null | `null` | `GITHUB_APP_ID` | GitHub App id. |
+| `providers.github.app.id` | string\|null | `null` | `GITHUB_APP_ID` | GitHub App id. Unset or blank means no app is configured; a non-string value (an integer, say) throws naming the key instead of falling back to `token`. |
 | `providers.github.app.installation_id` | string\|null | `null` | `GITHUB_APP_INSTALLATION_ID` | GitHub App installation id. With `id` and `private_key` also set, `Git::github()` mints installation tokens. |
 | `providers.github.app.private_key` | string\|null | `null` | `GITHUB_APP_PRIVATE_KEY` | GitHub App private key — a PEM string or a file path. |
 | `providers.github.app.slug` | string\|null | `null` | `GITHUB_APP_SLUG` | The app's public slug; `installations()->installUrl()` needs it. |

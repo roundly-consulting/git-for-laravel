@@ -20,6 +20,7 @@ use RoundlyConsulting\Git\Providers\Github;
 use RoundlyConsulting\Git\Providers\Gitlab;
 use RoundlyConsulting\Git\Support\Settings;
 use RoundlyConsulting\Git\Webhooks\SignatureVerifier;
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 
 /**
  * The root of the `Git` facade, and the injectable entry point for everyone who prefers
@@ -120,13 +121,22 @@ class GitManager
      * a `git clone` subprocess, say, via `cloneUrl()` — or read its live access token:
      * a refreshable one answers `accessToken()`, minting and caching as needed.
      *
+     * An unset or blank app id means "no app configured"; any other non-string throws
+     * naming the key rather than silently falling back to the token.
+     *
      * @param  ProviderName|class-string<Provider>|string  $provider
+     *
+     * @throws InvalidConfigurationException when the app id is set but not a string
      */
     public function credentials(ProviderName|string $provider): ?Credentials
     {
         $key = $this->resolveProviderName($provider)->key();
 
         $appId = config("git.providers.{$key}.app.id");
+
+        if ($appId !== null && ! is_string($appId)) {
+            throw InvalidConfigurationException::notAString("git.providers.{$key}.app.id", $appId);
+        }
 
         if (is_string($appId) && $appId !== '') {
             $installationId = config("git.providers.{$key}.app.installation_id");

@@ -5,6 +5,8 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Git\Concerns\InteractsWithRateLimits;
+use RoundlyConsulting\Git\Dto\Credentials\Token;
+use RoundlyConsulting\Git\Facades\Git;
 use RoundlyConsulting\Git\GitServiceProvider;
 use RoundlyConsulting\HttpClientRateLimits\RateLimit;
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
@@ -136,3 +138,20 @@ it('refuses a blank or non-string logging channel (strict config)', function (mi
     expect(fn () => github()->user())
         ->toThrow(InvalidConfigurationException::class, 'git.logging.channel');
 })->with(['blank' => '', 'int' => 1]);
+
+it('refuses a non-string github app id instead of falling back to the token (strict config)', function (mixed $id): void {
+    config()->set('git.providers.github.token', 'ghp_static');
+    config()->set('git.providers.github.app.id', $id);
+    config()->set('git.providers.github.app.installation_id', '999');
+    config()->set('git.providers.github.app.private_key', generateRsaKeypair()[0]);
+
+    expect(fn () => Git::credentials('github'))
+        ->toThrow(InvalidConfigurationException::class, '[git.providers.github.app.id]');
+})->with(['int' => 12345, 'array' => [['12345']], 'bool' => true]);
+
+it('still reads an unset or blank github app id as not configured (strict config)', function (mixed $id): void {
+    config()->set('git.providers.github.token', 'ghp_static');
+    config()->set('git.providers.github.app.id', $id);
+
+    expect(Git::credentials('github'))->toBeInstanceOf(Token::class);
+})->with(['unset' => null, 'blank' => '']);
