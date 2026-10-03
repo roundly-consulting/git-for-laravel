@@ -61,8 +61,6 @@ final class ConditionalCache
 
     private function store(): Repository
     {
-        $store = config('git.cache.store');
-
-        return Cache::store(is_string($store) ? $store : null);
+        return Cache::store(Settings::optionalString('git.cache.store', config('git.cache.store')));
     }
 }

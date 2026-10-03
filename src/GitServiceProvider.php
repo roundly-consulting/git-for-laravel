@@ -37,9 +37,24 @@ final class GitServiceProvider extends PackageServiceProvider
             ->contributesToAbout(static fn (): array => [
                 'Providers' => self::credentialedProviders(),
                 'Rate limiting' => self::throttledProviders(),
-                'Webhooks' => Config::boolean('git.webhooks.enabled') ? (string) config('git.webhooks.path', 'git/webhooks') : 'OFF',
+                'Webhooks' => Config::boolean('git.webhooks.enabled')
+                    ? Settings::string('git.webhooks.path', config('git.webhooks.path'), 'git/webhooks')
+                    : 'OFF',
                 'Conditional caching' => Config::boolean('git.cache.enabled') ? 'ON' : 'OFF',
             ]);
+    }
+
+    public function boot(): void
+    {
+        // The toolkit's route switch reads an unset key as ON, while git's documented default
+        // is OFF — and `Webhooks::register()` and `about` read it as OFF. Pin an unset switch
+        // (`GIT_WEBHOOKS_ENABLED=null`, or a published config without the key) to that default
+        // before the routes load, so the route, the derived URL and `about` all agree.
+        if (config('git.webhooks.enabled') === null) {
+            config()->set('git.webhooks.enabled', false);
+        }
+
+        parent::boot();
     }
 
     public function register(): void

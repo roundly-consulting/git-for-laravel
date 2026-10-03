@@ -18,6 +18,7 @@ use RoundlyConsulting\Git\Providers\BaseProvider;
 use RoundlyConsulting\Git\Providers\Bitbucket;
 use RoundlyConsulting\Git\Providers\Github;
 use RoundlyConsulting\Git\Providers\Gitlab;
+use RoundlyConsulting\Git\Support\Settings;
 use RoundlyConsulting\Git\Webhooks\SignatureVerifier;
 
 /**
@@ -136,7 +137,7 @@ class GitManager
                     appId: $appId,
                     installationId: $installationId,
                     privateKey: $privateKey,
-                    apiBaseUrl: is_string($url = config("git.providers.{$key}.url")) ? $url : null,
+                    apiBaseUrl: Settings::optionalString("git.providers.{$key}.url", config("git.providers.{$key}.url")),
                 );
             }
         }
@@ -192,7 +193,7 @@ class GitManager
         return GithubApp::for(
             appId: $appId,
             privateKey: $privateKey,
-            apiBaseUrl: is_string($url = config("git.providers.{$key}.url")) ? $url : null,
+            apiBaseUrl: Settings::optionalString("git.providers.{$key}.url", config("git.providers.{$key}.url")),
         );
     }
 

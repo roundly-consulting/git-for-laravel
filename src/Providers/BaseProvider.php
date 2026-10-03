@@ -595,7 +595,11 @@ abstract class BaseProvider implements Provider
     {
         $url = config("git.providers.{$this->key()}.url");
 
-        return is_string($url) && $url !== '' ? rtrim($url, '/') : $this->providerName()->apiBaseUrl();
+        // Unset means the forge's public API; a blank or non-string value throws rather
+        // than quietly sending a self-hosted host's requests to the public one.
+        return $url === null
+            ? $this->providerName()->apiBaseUrl()
+            : rtrim(Settings::string("git.providers.{$this->key()}.url", $url, ''), '/');
     }
 
     /**
@@ -702,7 +706,7 @@ abstract class BaseProvider implements Provider
         $request = Http::withOptions($this->options($http))
             ->timeout($this->timeoutSetting($http))
             ->retry($read ? $times : 1, $backoff, $this->retryable(...), throw: false)
-            ->baseUrl(is_string($http['url'] ?? null) ? $http['url'] : $this->providerName()->apiBaseUrl())
+            ->baseUrl($this->apiUrl())
             ->acceptJson()
             ->asJson();
 
@@ -829,7 +833,7 @@ abstract class BaseProvider implements Provider
         $request = $request->withOptions($this->options($http))
             ->timeout($this->timeoutSetting($http))
             ->retry($times, $backoff, $this->retryable(...), throw: false)
-            ->baseUrl(is_string($http['url'] ?? null) ? $http['url'] : $this->providerName()->apiBaseUrl())
+            ->baseUrl($this->apiUrl())
             ->acceptJson()
             ->asJson();
 
@@ -1072,8 +1076,8 @@ abstract class BaseProvider implements Provider
             return;
         }
 
-        $channel = config('git.logging.channel');
-        $logger = is_string($channel) && $channel !== '' ? Log::channel($channel) : Log::getFacadeRoot();
+        $channel = Settings::optionalString('git.logging.channel', config('git.logging.channel'));
+        $logger = $channel !== null ? Log::channel($channel) : Log::getFacadeRoot();
 
         $logger->debug('git request', [
             'provider' => $this->key(),

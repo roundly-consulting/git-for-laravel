@@ -37,8 +37,12 @@ trait InteractsWithRateLimits
             return null;
         }
 
-        $timespan = Timespan::tryFrom((string) ($config['timespan'] ?? 'minute')) ?? Timespan::Minute;
-        $owner = (string) ($config['owner'] ?? 'app');
+        // A typo'd window, a junk max_wait / jitter or a blank owner throws naming its key —
+        // never pacing per minute, or not at all, behind the host's back.
+        $timespan = Settings::enum("{$key}.timespan", $config['timespan'] ?? null, Timespan::class, Timespan::Minute);
+        $owner = Settings::string("{$key}.owner", $config['owner'] ?? null, 'app');
+        $maxWait = Settings::optionalInteger("{$key}.max_wait", $config['max_wait'] ?? null, 0, PHP_INT_MAX);
+        $jitter = Settings::optionalInteger("{$key}.jitter", $config['jitter'] ?? null, 0, PHP_INT_MAX);
 
         $rateLimit = RateLimits::make(new Limit(
             maxAttempts: Settings::integer("{$key}.maxAttempts", $config['maxAttempts'] ?? null, 1, PHP_INT_MAX, 60),
@@ -49,12 +53,12 @@ trait InteractsWithRateLimits
             $rateLimit->adaptive();
         }
 
-        if (isset($config['max_wait']) && is_numeric($config['max_wait'])) {
-            $rateLimit->maxWait((int) $config['max_wait']);
+        if ($maxWait !== null) {
+            $rateLimit->maxWait($maxWait);
         }
 
-        if (isset($config['jitter']) && is_numeric($config['jitter'])) {
-            $rateLimit->jitter((int) $config['jitter']);
+        if ($jitter !== null) {
+            $rateLimit->jitter($jitter);
         }
 
         return $rateLimit;

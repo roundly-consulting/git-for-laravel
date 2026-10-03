@@ -16,6 +16,7 @@ use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
 use RoundlyConsulting\Git\Events\OauthTokenRefreshed;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
+use RoundlyConsulting\Git\Support\Settings;
 use SensitiveParameter;
 
 /**
@@ -308,8 +309,6 @@ final class TokenManager
 
     private function cache(): CacheRepository
     {
-        $store = config('git.cache.store');
-
-        return is_string($store) && $store !== '' ? Cache::store($store) : Cache::store();
+        return Cache::store(Settings::optionalString('git.cache.store', config('git.cache.store')));
     }
 }
