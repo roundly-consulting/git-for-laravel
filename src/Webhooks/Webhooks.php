@@ -10,6 +10,7 @@ use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
 use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Interfaces\Provider;
+use RoundlyConsulting\Git\Support\Settings;
 use RoundlyConsulting\PackageToolkit\Support\Config;
 use SensitiveParameter;
 
@@ -107,8 +108,6 @@ final class Webhooks
 
     private function defaultSecret(): ?string
     {
-        $secret = config("git.providers.{$this->provider->providerName()->key()}.webhook_secret");
-
-        return is_string($secret) && $secret !== '' ? $secret : null;
+        return Settings::filled(config("git.providers.{$this->provider->providerName()->key()}.webhook_secret"));
     }
 }

@@ -9,6 +9,7 @@ use RoundlyConsulting\Git\Auth\TokenManager;
 use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
+use RoundlyConsulting\Git\Support\Settings;
 use SensitiveParameter;
 
 final readonly class OauthToken extends Credentials implements RefreshableCredentials
@@ -60,21 +61,12 @@ final readonly class OauthToken extends Credentials implements RefreshableCreden
     ): self {
         $key = $provider->key();
 
-        $clientId = config("git.providers.{$key}.oauth.client_id");
-        $clientSecret = config("git.providers.{$key}.oauth.client_secret");
-        $tokenUrl = config("git.providers.{$key}.oauth.token_url");
-
-        if (! is_string($clientId) || $clientId === '') {
-            throw InvalidCredentialsException::missingOauthConfig($key, 'client_id');
-        }
-
-        if (! is_string($clientSecret) || $clientSecret === '') {
-            throw InvalidCredentialsException::missingOauthConfig($key, 'client_secret');
-        }
-
-        if (! is_string($tokenUrl) || $tokenUrl === '') {
-            throw InvalidCredentialsException::missingOauthConfig($key, 'token_url');
-        }
+        $clientId = Settings::filled(config("git.providers.{$key}.oauth.client_id"))
+            ?? throw InvalidCredentialsException::missingOauthConfig($key, 'client_id');
+        $clientSecret = Settings::filled(config("git.providers.{$key}.oauth.client_secret"))
+            ?? throw InvalidCredentialsException::missingOauthConfig($key, 'client_secret');
+        $tokenUrl = Settings::filled(config("git.providers.{$key}.oauth.token_url"))
+            ?? throw InvalidCredentialsException::missingOauthConfig($key, 'token_url');
 
         return new self($accessToken, $refreshToken, $clientId, $clientSecret, $tokenUrl, $expiresAt);
     }

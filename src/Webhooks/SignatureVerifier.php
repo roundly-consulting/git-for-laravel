@@ -9,6 +9,7 @@ use RoundlyConsulting\Crypto\Hash\ConstantTime;
 use RoundlyConsulting\Crypto\Hash\HashAlgorithm;
 use RoundlyConsulting\Crypto\Hash\Hmac;
 use RoundlyConsulting\Git\Enums\ProviderName;
+use RoundlyConsulting\Git\Support\Settings;
 use SensitiveParameter;
 
 /**
@@ -24,9 +25,9 @@ final class SignatureVerifier
 {
     public function verify(ProviderName $provider, Request $request): bool
     {
-        $secret = config("git.providers.{$provider->key()}.webhook_secret");
+        $secret = Settings::filled(config("git.providers.{$provider->key()}.webhook_secret"));
 
-        if (! is_string($secret) || $secret === '') {
+        if ($secret === null) {
             return false;
         }
 

@@ -151,6 +151,14 @@ describe('the flat facade methods', function (): void {
 
         expect(Git::verifyWebhook(ProviderName::Gitlab, $request))->toBeFalse();
     });
+
+    it('reads a blank secret as not configured, so a matching blank token verifies nothing', function (string $blank): void {
+        config()->set('git.providers.gitlab.webhook_secret', $blank);
+
+        $request = Request::create('/hooks/gitlab', 'POST', [], [], [], ['HTTP_X-Gitlab-Token' => '  '], '{}');
+
+        expect(Git::verifyWebhook(ProviderName::Gitlab, $request))->toBeFalse();
+    })->with(['empty' => '', 'whitespace' => '  ']);
 });
 
 describe('the fake', function (): void {

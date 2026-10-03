@@ -15,8 +15,9 @@ use RoundlyConsulting\PackageToolkit\Support\Config;
  * `GIT_CACHE_ENABLED=off` is `"off"` — so an `is_int()` check silently ignores the first
  * and a `(bool)` cast reads the second as ON. Both go through package-toolkit's validator
  * instead: an integer string is an integer, `1/true/on/yes` and `0/false/off/no` are
- * booleans, and a malformed integer, an unknown enum value or a blank string fails loudly
- * naming the key. Only an absent (null) value takes the default.
+ * booleans, and a malformed integer or an unknown enum value fails loudly naming the key.
+ * A value that is not set — null, or blank (`''` or whitespace, a host's `KEY=`) — takes
+ * the default, or stays null for an optional setting.
  *
  * Takes the value rather than the key because most of git's settings live under a
  * runtime driver key (`git.providers.{github|gitlab|bitbucket}.…`) that callers have
@@ -38,28 +39,28 @@ final class Settings
     }
 
     /**
-     * An optional integer: null leaves the feature off, anything else must be an integer
-     * within range.
+     * An optional integer: not set (null or blank) leaves the feature off, anything else
+     * must be an integer within range.
      *
      * @throws InvalidConfigurationException
      */
     public static function optionalInteger(string $key, mixed $value, int $min, int $max): ?int
     {
-        return $value === null ? null : self::integer($key, $value, $min, $max, $min);
+        return self::isUnset($value) ? null : self::integer($key, $value, $min, $max, $min);
     }
 
     /**
-     * A string setting: the default when null, otherwise a non-empty string.
+     * A string setting: the default when not set (null or blank), otherwise a string.
      *
      * @throws InvalidConfigurationException
      */
     public static function string(string $key, mixed $value, string $default): string
     {
-        if ($value === null) {
+        if (self::isUnset($value)) {
             return $default;
         }
 
-        if (! is_string($value) || trim($value) === '') {
+        if (! is_string($value)) {
             throw InvalidConfigurationException::notAString($key, $value);
         }
 
@@ -67,14 +68,30 @@ final class Settings
     }
 
     /**
-     * An optional string setting (a cache store, a log channel): null stays null — the
-     * framework default — and anything else must be a non-empty string.
+     * An optional string setting (a cache store, a log channel, an API URL): not set (null
+     * or blank) is null — the framework or forge default — and anything else must be a
+     * string.
      *
      * @throws InvalidConfigurationException
      */
     public static function optionalString(string $key, mixed $value): ?string
     {
-        return $value === null ? null : self::string($key, $value, '');
+        return self::isUnset($value) ? null : self::string($key, $value, '');
+    }
+
+    /**
+     * A configured secret or identifier (a token, an app id, a webhook secret): the string
+     * when one is set, null when not set (null or blank) — never a whitespace credential.
+     */
+    public static function filled(mixed $value): ?string
+    {
+        return is_string($value) && ! self::isUnset($value) ? $value : null;
+    }
+
+    /** Not set: null, or a blank string (`''` or whitespace — a host's `KEY=`). */
+    public static function isUnset(mixed $value): bool
+    {
+        return $value === null || (is_string($value) && trim($value) === '');
     }
 
     /**

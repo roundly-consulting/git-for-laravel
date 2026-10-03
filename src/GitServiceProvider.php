@@ -48,9 +48,10 @@ final class GitServiceProvider extends PackageServiceProvider
     {
         // The toolkit's route switch reads an unset key as ON, while git's documented default
         // is OFF — and `Webhooks::register()` and `about` read it as OFF. Pin an unset switch
-        // (`GIT_WEBHOOKS_ENABLED=null`, or a published config without the key) to that default
-        // before the routes load, so the route, the derived URL and `about` all agree.
-        if (config('git.webhooks.enabled') === null) {
+        // (`GIT_WEBHOOKS_ENABLED=null`, a blank `GIT_WEBHOOKS_ENABLED=`, or a published config
+        // without the key) to that default before the routes load, so the route, the derived
+        // URL and `about` all agree.
+        if (Settings::isUnset(config('git.webhooks.enabled'))) {
             config()->set('git.webhooks.enabled', false);
         }
 
@@ -82,7 +83,7 @@ final class GitServiceProvider extends PackageServiceProvider
     {
         $configured = array_keys(array_filter(
             self::providers(),
-            static fn (array $provider): bool => is_string($provider['token'] ?? null) && $provider['token'] !== '',
+            static fn (array $provider): bool => Settings::filled($provider['token'] ?? null) !== null,
         ));
 
         return $configured === [] ? 'NONE' : implode(', ', $configured);

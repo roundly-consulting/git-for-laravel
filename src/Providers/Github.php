@@ -50,6 +50,7 @@ use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Mapping\GithubMapper;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
+use RoundlyConsulting\Git\Support\Settings;
 
 class Github extends BaseProvider
 {
@@ -220,11 +221,8 @@ class Github extends BaseProvider
      */
     public function installUrl(?string $state = null): string
     {
-        $slug = config("git.providers.{$this->key()}.app.slug");
-
-        if (! is_string($slug) || $slug === '') {
-            throw InvalidCredentialsException::missingAppConfig($this->key(), 'slug');
-        }
+        $slug = Settings::filled(config("git.providers.{$this->key()}.app.slug"))
+            ?? throw InvalidCredentialsException::missingAppConfig($this->key(), 'slug');
 
         // GitHub Enterprise Server serves app pages under `/github-apps/`, github.com and
         // GHE.com under `/apps/`.

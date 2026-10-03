@@ -138,11 +138,13 @@ class GitManager
             throw InvalidConfigurationException::notAString("git.providers.{$key}.app.id", $appId);
         }
 
-        if (is_string($appId) && $appId !== '') {
-            $installationId = config("git.providers.{$key}.app.installation_id");
-            $privateKey = config("git.providers.{$key}.app.private_key");
+        $appId = Settings::filled($appId);
 
-            if (is_string($installationId) && $installationId !== '' && is_string($privateKey) && $privateKey !== '') {
+        if ($appId !== null) {
+            $installationId = Settings::filled(config("git.providers.{$key}.app.installation_id"));
+            $privateKey = Settings::filled(config("git.providers.{$key}.app.private_key"));
+
+            if ($installationId !== null && $privateKey !== null) {
                 return GithubAppToken::for(
                     appId: $appId,
                     installationId: $installationId,
@@ -152,13 +154,9 @@ class GitManager
             }
         }
 
-        $token = config("git.providers.{$key}.token");
+        $token = Settings::filled(config("git.providers.{$key}.token"));
 
-        if (! is_string($token) || $token === '') {
-            return null;
-        }
-
-        return Token::from($token);
+        return $token === null ? null : Token::from($token);
     }
 
     /**
@@ -189,16 +187,10 @@ class GitManager
     {
         $key = $provider->key();
 
-        $appId = config("git.providers.{$key}.app.id");
-        $privateKey = config("git.providers.{$key}.app.private_key");
-
-        if (! is_string($appId) || $appId === '') {
-            throw InvalidCredentialsException::missingAppConfig($provider->key(), 'id');
-        }
-
-        if (! is_string($privateKey) || $privateKey === '') {
-            throw InvalidCredentialsException::missingAppConfig($provider->key(), 'private_key');
-        }
+        $appId = Settings::filled(config("git.providers.{$key}.app.id"))
+            ?? throw InvalidCredentialsException::missingAppConfig($provider->key(), 'id');
+        $privateKey = Settings::filled(config("git.providers.{$key}.app.private_key"))
+            ?? throw InvalidCredentialsException::missingAppConfig($provider->key(), 'private_key');
 
         return GithubApp::for(
             appId: $appId,

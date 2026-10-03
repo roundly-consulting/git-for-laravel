@@ -593,13 +593,11 @@ abstract class BaseProvider implements Provider
     /** The configured API base URL, or the forge's public one. */
     protected function apiUrl(): string
     {
-        $url = config("git.providers.{$this->key()}.url");
+        // Not set (absent, null or blank) means the forge's public API; a non-string value
+        // throws rather than quietly sending a self-hosted host's requests to the public one.
+        $url = Settings::optionalString("git.providers.{$this->key()}.url", config("git.providers.{$this->key()}.url"));
 
-        // Unset means the forge's public API; a blank or non-string value throws rather
-        // than quietly sending a self-hosted host's requests to the public one.
-        return $url === null
-            ? $this->providerName()->apiBaseUrl()
-            : rtrim(Settings::string("git.providers.{$this->key()}.url", $url, ''), '/');
+        return $url === null ? $this->providerName()->apiBaseUrl() : rtrim($url, '/');
     }
 
     /**
