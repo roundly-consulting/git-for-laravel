@@ -81,7 +81,8 @@ final class GitServiceProvider extends PackageServiceProvider
     {
         $enabled = array_keys(array_filter(
             self::providers(),
-            static fn (array $provider): bool => Settings::boolean('git.providers.*.rateLimits.enabled', $provider['rateLimits']['enabled'] ?? null, true),
+            static fn (array $provider, string $name): bool => Settings::boolean("git.providers.{$name}.rateLimits.enabled", $provider['rateLimits']['enabled'] ?? null, true),
+            ARRAY_FILTER_USE_BOTH,
         ));
 
         return $enabled === [] ? 'OFF' : implode(', ', $enabled);

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
+
 /**
  * The secret-safe `about` capture (A).
  *
@@ -74,5 +76,14 @@ it('reports NONE rather than an empty line when no provider is credentialed', fu
     expect('git')->toLeakNoSecrets(
         secrets: ['ghp_live_github_token_value'],
         mustRender: ['Providers', 'NONE', 'Webhooks', 'OFF'],
+    );
+});
+
+it('names the real provider key for a rate-limit switch typo (strict config)', function (): void {
+    config()->set('git.providers.gitlab.rateLimits.enabled', 'disabled');
+
+    expect(fn () => $this->artisan('about', ['--only' => 'git'])->run())->toThrow(
+        InvalidConfigurationException::class,
+        'Configuration value [git.providers.gitlab.rateLimits.enabled] must be a boolean (true/false, 1/0, on/off or yes/no), [disabled] given.',
     );
 });
