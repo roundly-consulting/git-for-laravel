@@ -38,7 +38,7 @@ final class GitServiceProvider extends PackageServiceProvider
                 'Providers' => self::credentialedProviders(),
                 'Rate limiting' => self::throttledProviders(),
                 'Webhooks' => Config::boolean('git.webhooks.enabled')
-                    ? Settings::string('git.webhooks.path', config('git.webhooks.path'), 'git/webhooks')
+                    ? Settings::routePath('git.webhooks.path', config('git.webhooks.path'), 'git/webhooks')
                     : 'OFF',
                 'Conditional caching' => Config::boolean('git.cache.enabled') ? 'ON' : 'OFF',
             ]);

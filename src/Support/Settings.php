@@ -68,6 +68,24 @@ final class Settings
     }
 
     /**
+     * A route path prefix: the default when not set (null or blank), otherwise the string
+     * with surrounding slashes and whitespace trimmed (`/hooks/` is `hooks`). A path of
+     * only slashes would mount the route at the site root, so it throws.
+     *
+     * @throws InvalidConfigurationException
+     */
+    public static function routePath(string $key, mixed $value, string $default): string
+    {
+        $path = trim(self::string($key, $value, $default), " \t\n\r\0\x0B/");
+
+        if ($path === '') {
+            throw new InvalidConfigurationException("Configuration value [{$key}] must be a path below the site root, [".var_export($value, true).'] given.');
+        }
+
+        return $path;
+    }
+
+    /**
      * An optional string setting (a cache store, a log channel, an API URL): not set (null
      * or blank) is null — the framework or forge default — and anything else must be a
      * string.

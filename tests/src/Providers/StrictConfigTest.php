@@ -128,6 +128,32 @@ it('mounts the webhook route at the default path when the path is unset or blank
         ->and(app('router')->getRoutes()->getByName('git.webhooks')?->uri())->toBe('git/webhooks/{provider}');
 })->with(['absent' => null, 'empty' => '', 'whitespace' => ' ']);
 
+it('refuses a slash-only webhook path instead of mounting at the root (strict config)', function (string $path): void {
+    config()->set('git.webhooks.enabled', true);
+    config()->set('git.webhooks.path', $path);
+
+    // Before: `/` and `//` mounted the receiver at `{provider}`, the site root.
+    expect(fn () => strictBootsWebhookRoute())
+        ->toThrow(InvalidConfigurationException::class, 'Configuration value [git.webhooks.path] must be a path below the site root');
+})->with(['slash' => '/', 'slashes' => '//', 'padded slash' => ' / ']);
+
+it('trims surrounding slashes and whitespace from the webhook path (strict config)', function (string $path, string $uri): void {
+    config()->set('git.webhooks.enabled', true);
+    config()->set('git.webhooks.path', $path);
+
+    expect(strictBootsWebhookRoute())->toBeTrue()
+        ->and(app('router')->getRoutes()->getByName('git.webhooks')?->uri())->toBe($uri);
+
+    Artisan::call('about', ['--only' => 'git']);
+
+    expect(Artisan::output())->toMatch('/Webhooks\s*\.+\s*'.preg_quote(str_replace('/{provider}', '', $uri), '/').'\s/');
+})->with([
+    'trailing slash' => ['/hooks/', 'hooks/{provider}'],
+    'leading slash' => ['/git/webhooks', 'git/webhooks/{provider}'],
+    'padded' => [' hooks ', 'hooks/{provider}'],
+    'plain' => ['hooks', 'hooks/{provider}'],
+]);
+
 it('refuses a non-string api url instead of calling the public forge (strict config)', function (mixed $url): void {
     config()->set('git.providers.github.url', $url);
     Http::fake();
