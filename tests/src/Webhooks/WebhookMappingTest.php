@@ -43,6 +43,27 @@ it('maps a gitlab push and merge request', function () {
         ->and($mr->repository()?->path)->toBe('acme/web');
 });
 
+it('maps the url and the author of a real gitlab merge request hook', function () {
+    // GitLab's hook carries `url` (not the REST `web_url`) and an `author_id` rather than an
+    // author object; the top-level `user` is whoever triggered the event.
+    $mr = new WebhookEvent(ProviderName::Gitlab, 'Merge Request Hook', webhookFixture('gitlab', 'merge_request_opened'));
+
+    expect($mr->pullRequest()?->url)->toBe('https://gitlab.example.com/gitlabhq/gitlab-test/-/merge_requests/1')
+        ->and($mr->pullRequest()?->author?->name)->toBe('jane')
+        ->and($mr->pullRequest()?->author?->avatar)->toStartWith('https://www.gravatar.com/avatar/')
+        ->and($mr->pullRequest()?->number)->toBe(1);
+});
+
+it('names no author when someone other than the author triggered the hook', function () {
+    $payload = webhookFixture('gitlab', 'merge_request_opened');
+    $payload['user'] = ['id' => 1, 'name' => 'Administrator', 'username' => 'root', 'avatar_url' => null, 'email' => '[REDACTED]'];
+
+    $mr = new WebhookEvent(ProviderName::Gitlab, 'Merge Request Hook', $payload);
+
+    expect($mr->pullRequest()?->author)->toBeNull()
+        ->and($mr->pullRequest()?->url)->toBe('https://gitlab.example.com/gitlabhq/gitlab-test/-/merge_requests/1');
+});
+
 it('maps a bitbucket push and pull request', function () {
     $push = new WebhookEvent(ProviderName::Bitbucket, 'repo:push', webhookFixture('bitbucket', 'push'));
     $pr = new WebhookEvent(ProviderName::Bitbucket, 'pullrequest:created', webhookFixture('bitbucket', 'pull_request'));

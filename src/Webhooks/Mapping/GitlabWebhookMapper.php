@@ -41,7 +41,10 @@ final class GitlabWebhookMapper implements WebhookPayloadMapper
             return null;
         }
 
-        return $this->resources->pullRequest($payload['object_attributes']);
+        return $this->resources->pullRequest($this->normalizeMergeRequest(
+            $payload['object_attributes'],
+            is_array($payload['user'] ?? null) ? $payload['user'] : null,
+        ));
     }
 
     /** @param array<string, mixed> $payload */
@@ -96,6 +99,32 @@ final class GitlabWebhookMapper implements WebhookPayloadMapper
         $commit['web_url'] ??= $commit['url'] ?? null;
 
         return $commit;
+    }
+
+    /**
+     * A merge request hook's `object_attributes` in the REST shape the resource mapper reads.
+     *
+     * The hook carries `url` where REST has `web_url`, and only an `author_id` where REST
+     * has an `author` object. The top-level `user` is whoever TRIGGERED the event, so it
+     * stands in for the author only when it is the author; otherwise the author is unknown
+     * (null) rather than wrongly the reviewer who merged.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @param  array<string, mixed>|null  $user
+     * @return array<string, mixed>
+     */
+    private function normalizeMergeRequest(array $attributes, ?array $user): array
+    {
+        $attributes['web_url'] ??= $attributes['url'] ?? null;
+
+        if (! isset($attributes['author'])
+            && $user !== null
+            && isset($user['id'], $attributes['author_id'])
+            && $user['id'] === $attributes['author_id']) {
+            $attributes['author'] = $user;
+        }
+
+        return $attributes;
     }
 
     /**

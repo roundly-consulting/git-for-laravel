@@ -68,6 +68,9 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   1 and 100 MB, read through the blob endpoint. They used to come back with an empty `content`
   next to the real `sha`. A directory path now throws `OutOfScopeException::notAFile()` naming
   the path instead of an `ErrorException`.
+- A GitLab merge request webhook now maps the pull request's `url` (GitLab sends `url`, not
+  `web_url`) and its `author` — the triggering `user` when it is the merge request's author,
+  otherwise `null`. Both used to be `null`.
 
 ## 1.0.0 - 2026-10-03
 
