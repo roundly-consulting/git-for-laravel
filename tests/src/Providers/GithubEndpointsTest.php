@@ -71,6 +71,33 @@ it('lists and gets issues', function () {
         ->and(github()->issue('o/r', 3))->title->toBe('bug');
 });
 
+it('leaves pull requests out of the issue list, keeping the next-page signal', function () {
+    // GitHub's issues endpoint returns pull requests too, each carrying a `pull_request` key.
+    $issue = fn (int $number): array => [
+        'id' => 1000 + $number, 'number' => $number, 'title' => "Bug {$number}", 'state' => 'open',
+        'body' => 'b', 'user' => ['login' => 'octocat', 'avatar_url' => 'a'],
+        'html_url' => "https://github.com/o/r/issues/{$number}", 'created_at' => '2020-01-01T00:00:00Z',
+    ];
+    $pull = fn (int $number): array => $issue($number) + ['pull_request' => [
+        'url' => "https://api.github.com/repos/o/r/pulls/{$number}",
+        'html_url' => "https://github.com/o/r/pull/{$number}",
+        'diff_url' => "https://github.com/o/r/pull/{$number}.diff",
+        'patch_url' => "https://github.com/o/r/pull/{$number}.patch",
+        'merged_at' => null,
+    ]];
+
+    Http::fake(['*/repos/o/r/issues*' => Http::response(
+        [$pull(5), $issue(4), $pull(3), $issue(2), $pull(1)],
+        200,
+        ['Link' => '<https://api.github.com/repositories/1/issues?state=open&per_page=5&page=2>; rel="next"'],
+    )]);
+
+    $page = github()->issues('o/r', perPage: 5);
+
+    expect($page->collect()->pluck('number')->all())->toBe([4, 2])
+        ->and($page->hasMore)->toBeTrue();
+});
+
 it('lists tags and releases', function () {
     Http::fake([
         '*/repos/o/r/tags*' => Http::response([['name' => 'v1.0', 'commit' => ['sha' => 'abc', 'url' => 'u']]]),

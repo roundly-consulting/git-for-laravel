@@ -6,6 +6,11 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Fixed
+
+- GitHub `issues()` no longer lists pull requests as issues. GitHub's issues endpoint returns
+  both; the pull requests are now dropped, and `hasMore` still follows the `Link` header.
+
 ## 1.0.0 - 2026-10-03
 
 Initial public release.

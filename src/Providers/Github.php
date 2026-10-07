@@ -305,17 +305,32 @@ class Github extends BaseProvider
         return $this->mapper()->pullRequest($this->get($this->repos($path)."/pulls/{$number}")->json());
     }
 
-    /** @return Page<Issue> */
+    /**
+     * The repository's issues — without its pull requests.
+     *
+     * GitHub's issues endpoint lists pull requests as well (each carries a `pull_request`
+     * key), so they are dropped here. The page can therefore hold fewer items than
+     * `$perPage` while `hasMore` — read off the `Link` header — is still true.
+     *
+     * @return Page<Issue>
+     */
     public function issues(string $path, string $state = 'open', int $perPage = 30): Page
     {
         $this->guardSupported(Feature::ListIssues);
 
-        return $this->paginate(
+        $page = $this->paginate(
             url: $this->repos($path).'/issues',
             query: ['state' => $state],
             page: 1,
             perPage: $perPage,
-            map: fn (array $issue): Issue => $this->mapper()->issue($issue),
+            map: fn (array $issue): ?Issue => isset($issue['pull_request']) ? null : $this->mapper()->issue($issue),
+        );
+
+        return new Page(
+            items: array_values(array_filter($page->items, fn (?Issue $issue): bool => $issue !== null)),
+            perPage: $page->perPage,
+            page: $page->page,
+            hasMore: $page->hasMore,
         );
     }
 
