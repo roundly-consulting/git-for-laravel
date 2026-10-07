@@ -5,6 +5,9 @@ declare(strict_types=1);
 use Illuminate\Support\Carbon;
 use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Commit;
+use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
+use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
+use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
 use RoundlyConsulting\Git\Dto\Input\NewRepository;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
@@ -17,6 +20,11 @@ use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Facades\Git;
 use RoundlyConsulting\Git\Testing\ProviderFake;
 
+beforeEach(function (): void {
+    // The fake authenticates as production does, so a write needs a credential configured.
+    fakeCredentials();
+});
+
 it('exposes a faithful provider double surface', function () {
     $fake = Git::fake();
     $provider = $fake->github();
@@ -27,7 +35,7 @@ it('exposes a faithful provider double surface', function () {
         ->and($provider->isAuthenticated())->toBeTrue()
         ->and($provider->supports(Feature::ListRepositories))->toBeTrue()
         ->and($provider->features())->toBe(Feature::cases())
-        ->and($provider->authenticationMethods())->toBe([])
+        ->and($provider->authenticationMethods())->toBe([Token::class, GithubAppToken::class, GithubApp::class, OauthToken::class])
         ->and($provider->rateLimit())->toBeNull()
         ->and($provider->authenticate(Token::from('x')))->toBe($provider);
 });
@@ -99,6 +107,10 @@ it('keeps the batch plumbing off the fake', function () {
 });
 
 it('drives the installation flow without http', function () {
+    // With an installation configured, `Git::github()` authenticates as that installation
+    // (an installation token) — the credential `installationRepositories()` requires.
+    config()->set('git.providers.github.app.installation_id', '999');
+
     // ONE fake: Git::fake() rebinds a fresh double, so a second call would assert
     // against an instance that recorded nothing.
     $fake = Git::fake();

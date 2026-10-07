@@ -21,6 +21,19 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   `defaultBranch`, GitLab `createRepository()` with a non-numeric `owner`, and a GitLab webhook
   that is inactive or names an unknown event. A host test that relied on the fake accepting one
   of these now fails as production would.
+- `Git::fake()` now authenticates like the real manager. Each `Git::github()` / `gitlab()` /
+  `bitbucket()` / `provider()` call gets its own fake driver (sharing the provider's seeds and
+  records) with the credential passed, else the configured one, else none. As in production, a
+  write or `listWebhooks()` with no credential throws `InvalidCredentialsException::missing()`,
+  a credential type the forge does not take throws `unsupported()` (e.g. `Git::bitbucket()`
+  with an `OauthToken`), `installations()` needs a `GithubApp` and `installationRepositories()`
+  a `GithubAppToken` (`wrongCredentialType()`), `Git::githubApp()` with no app configured
+  throws `missingAppConfig()`, and `authenticationMethods()` / `isAuthenticated()` answer as the
+  real driver does. Host tests now configure fake credentials — nothing signs or sends with
+  them: a token per forge (`git.providers.<provider>.token`), plus `git.providers.github.app.id`
+  (numeric) and `app.private_key` (any string) for `Git::githubApp()`, and
+  `app.installation_id` when `Git::github()` should act as the installation. Seed through
+  `Git::fake()->fakeFor(ProviderName::…)`, which needs no credential.
 
 ### Fixed
 

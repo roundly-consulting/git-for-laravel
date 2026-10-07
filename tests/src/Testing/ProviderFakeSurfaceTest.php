@@ -38,6 +38,11 @@ use RoundlyConsulting\Git\Enums\ResourceState;
 use RoundlyConsulting\Git\Enums\ReviewEvent;
 use RoundlyConsulting\Git\Facades\Git;
 
+beforeEach(function (): void {
+    // The fake authenticates as production does, so a write needs a credential configured.
+    fakeCredentials();
+});
+
 /**
  * The fake used to answer roughly a third of the provider surface, so a host application
  * that listed pull requests, read file contents, or merged anything through

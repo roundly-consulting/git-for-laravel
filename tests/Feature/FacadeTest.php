@@ -162,15 +162,22 @@ describe('the flat facade methods', function (): void {
 });
 
 describe('the fake', function (): void {
+    beforeEach(function (): void {
+        // The fake authenticates as production does, so a write needs a credential configured.
+        fakeCredentials();
+    });
+
     it('swaps a manager subtype in for the facade and for injection', function (): void {
         $fake = Git::fake();
+        $fake->fakeFor(ProviderName::Gitlab)->seedBranches(['main']);
 
         expect($fake)->toBeInstanceOf(GitFake::class)
             ->and(app(GitManager::class))->toBe($fake)
             ->and(Git::github())->toBeInstanceOf(ProviderFake::class)
-            ->and(Git::githubApp())->toBe(Git::github())
-            ->and(Git::gitlab())->toBe($fake->fakeFor(ProviderName::Gitlab))
-            ->and(Git::bitbucket())->toBe(Git::provider(Bitbucket::class));
+            ->and(Git::githubApp()->providerName())->toBe(ProviderName::Github)
+            ->and(Git::provider(Bitbucket::class)->providerName())->toBe(ProviderName::Bitbucket)
+            // Each call carries its own credential, over the provider's one set of seeds.
+            ->and(Git::gitlab()->branches('g/p')->items)->toBe(['main']);
     });
 
     it('records calls made through the handles', function (): void {

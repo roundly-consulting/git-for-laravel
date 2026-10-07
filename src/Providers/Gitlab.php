@@ -406,8 +406,8 @@ class Gitlab extends BaseProvider
             $this->guardSupported(Feature::GenerateFromTemplate);
         }
 
-        $this->guardAuthenticated();
         $this->validateNewRepository($data);
+        $this->guardAuthenticated();
 
         $response = $this->send('POST', '/api/v4/projects', [
             'name' => $data->name,
@@ -521,8 +521,8 @@ class Gitlab extends BaseProvider
     public function comment(string $path, NewComment $data): Comment
     {
         $this->guardSupported(Feature::CreateComment);
-        $this->guardAuthenticated();
         $this->validateComment($data);
+        $this->guardAuthenticated();
 
         $collection = $data->target === CommentTarget::Issue ? 'issues' : 'merge_requests';
 
@@ -610,8 +610,8 @@ class Gitlab extends BaseProvider
     public function createWebhook(string $path, NewWebhook $data): Webhook
     {
         $this->guardSupported(Feature::CreateWebhook);
-        $this->guardAuthenticated();
         $this->validateNewWebhook($data);
+        $this->guardAuthenticated();
 
         $response = $this->send('POST', '/api/v4/projects/'.$this->encode($path).'/hooks', [
             'url' => $data->url,

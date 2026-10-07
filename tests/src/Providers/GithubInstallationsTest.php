@@ -318,6 +318,8 @@ it('names the missing app config key rather than failing as unauthenticated', fu
 })->with(['id', 'private_key']);
 
 it('builds an install url through the fake', function () {
+    fakeCredentials();
+
     $fake = Git::fake();
 
     expect($fake->githubApp()->installUrl('abc'))->toContain('installations/new?state=abc');

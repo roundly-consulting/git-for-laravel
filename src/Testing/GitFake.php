@@ -11,6 +11,7 @@ use PHPUnit\Framework\Assert;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
 use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
 use RoundlyConsulting\Git\Enums\ProviderName;
+use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\GitManager;
 use RoundlyConsulting\Git\Interfaces\Provider;
 
@@ -40,37 +41,59 @@ final class GitFake extends GitManager
 
     public function github(?Credentials $credentials = null): ProviderFake
     {
-        return $this->fakeFor(ProviderName::Github);
+        return $this->provider(ProviderName::Github, $credentials);
     }
 
+    /**
+     * The fake GitHub driver authenticated as the app — resolving the configured app
+     * credentials exactly as production does, so an unconfigured app throws
+     * `InvalidCredentialsException::missingAppConfig()` here too. A host test configures
+     * fake app keys (`git.providers.github.app.id` + `app.private_key`) or passes a
+     * `GithubApp` of its own; nothing signs or sends with them.
+     */
     public function githubApp(?GithubApp $credentials = null): ProviderFake
     {
-        return $this->fakeFor(ProviderName::Github);
+        return $this->provider(ProviderName::Github, $credentials ?? $this->appCredentials(ProviderName::Github));
     }
 
     public function gitlab(?Credentials $credentials = null): ProviderFake
     {
-        return $this->fakeFor(ProviderName::Gitlab);
+        return $this->provider(ProviderName::Gitlab, $credentials);
     }
 
     public function bitbucket(?Credentials $credentials = null): ProviderFake
     {
-        return $this->fakeFor(ProviderName::Bitbucket);
+        return $this->provider(ProviderName::Bitbucket, $credentials);
     }
 
     /**
+     * A fake driver authenticated as the real manager would authenticate it: with the
+     * credential passed, else the configured one ({@see Credentials()}), else none. Each
+     * call gets its own copy — so one call's credential never leaks into another's — that
+     * shares the provider's seeds and records.
+     *
      * @param  ProviderName|class-string<Provider>|string  $provider
+     *
+     * @throws InvalidCredentialsException when the real driver does not take the credential's type
      */
     public function provider(ProviderName|string $provider, ?Credentials $credentials = null): ProviderFake
     {
-        return $this->fakeFor($this->resolveProviderName($provider));
+        $name = $this->resolveProviderName($provider);
+        $driver = $this->fakeFor($name)->fresh();
+
+        $credentials ??= $this->credentials($name);
+
+        return $credentials === null ? $driver : $driver->authenticate($credentials);
     }
 
     /**
-     * The one fake driver per provider — seed it before the code under test runs.
+     * The one fake driver per provider — seed it before the code under test runs. It is
+     * unauthenticated; the drivers `github()`, `provider()` and friends hand out share its
+     * seeds and carry their own credential.
      *
-     * It enforces the feature list and the input checks of the real driver the container
-     * resolves for that provider, so the fake supports exactly what production does.
+     * It enforces the feature list, the input checks and the credential types of the real
+     * driver the container resolves for that provider, so the fake supports exactly what
+     * production does.
      */
     public function fakeFor(ProviderName $name): ProviderFake
     {

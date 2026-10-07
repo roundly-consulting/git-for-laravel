@@ -24,6 +24,8 @@ function handleInstallation(string $login = 'acme-inc'): Installation
 }
 
 it('drives every installation lookup through the handle', function (): void {
+    fakeCredentials();
+
     $fake = Git::fake();
     $fake->github()->seedInstallation(handleInstallation());
 
@@ -61,6 +63,8 @@ it('names the wrong credential when driven with an installation token', function
 })->throws(InvalidCredentialsException::class);
 
 it('refuses identifiers that could step outside the lookup', function (): void {
+    fakeCredentials();
+
     $fake = Git::fake();
     $installations = Git::githubApp()->installations();
 

@@ -85,27 +85,43 @@ final class ProviderFake implements Provider
 {
     use ProvidesHandles;
 
-    /** @var array<string, mixed> */
-    private array $seeded = [];
+    /** Shared by every per-call copy of this driver ({@see fresh()}). */
+    private readonly SeedStore $seeds;
 
-    /** @var array<string, BatchResult<mixed>> */
-    private array $seededBatches = [];
+    /** The credential this copy was handed — per call, as on the real drivers. */
+    private ?Credentials $authentication = null;
 
     /**
      * @param  list<Feature>  $features  the real driver's feature list, which this fake enforces
-     * @param  Provider|null  $driver  the real driver, whose input checks this fake runs
+     * @param  Provider|null  $driver  the real driver, whose input checks and credential types this fake applies
      */
     public function __construct(
         private readonly ProviderName $name,
         private readonly GitFake $git,
         private readonly array $features,
         private readonly ?Provider $driver = null,
-    ) {}
+    ) {
+        $this->seeds = new SeedStore;
+    }
+
+    /**
+     * An unauthenticated copy that shares this driver's seeds — what each `Git::github()`
+     * call hands out, so one call's credential never leaks into another's.
+     *
+     * @internal the fake manager's per-call driver.
+     */
+    public function fresh(): self
+    {
+        $copy = clone $this;
+        $copy->authentication = null;
+
+        return $copy;
+    }
 
     /** @param BatchResult<mixed> $result */
     public function seedBatch(string $method, BatchResult $result): self
     {
-        $this->seededBatches[$method] = $result;
+        $this->seeds->batches[$method] = $result;
 
         return $this;
     }
@@ -317,20 +333,37 @@ final class ProviderFake implements Provider
         }
     }
 
-    /** @return list<class-string<Credentials>> */
+    /**
+     * The credential types the real driver takes.
+     *
+     * @return list<class-string<Credentials>>
+     */
     public function authenticationMethods(): array
     {
-        return [];
+        return $this->driver?->authenticationMethods() ?? [];
     }
 
+    /**
+     * Authenticate this copy — refusing a credential type the real driver refuses.
+     *
+     * @throws InvalidCredentialsException when the real driver does not take this type
+     */
     public function authenticate(Credentials $credentials): self
     {
+        $supported = $this->authenticationMethods();
+
+        if ($this->driver !== null && ! in_array($credentials::class, $supported, true)) {
+            throw InvalidCredentialsException::unsupported($this->name(), $credentials::class, $supported);
+        }
+
+        $this->authentication = $credentials;
+
         return $this;
     }
 
     public function isAuthenticated(): bool
     {
-        return true;
+        return $this->authentication !== null;
     }
 
     public function rateLimit(): ?RateLimitStatus
@@ -343,7 +376,7 @@ final class ProviderFake implements Provider
         $this->record('user', []);
 
         /** @var Owner */
-        return $this->seeded['user'] ?? new Owner(id: 'fake', name: 'fake', avatar: null);
+        return $this->seeds->values['user'] ?? new Owner(id: 'fake', name: 'fake', avatar: null);
     }
 
     /** @return Page<Repository> */
@@ -379,6 +412,7 @@ final class ProviderFake implements Provider
     public function installationRepositories(int $perPage = 30): Page
     {
         $this->ensureSupported(Feature::ListInstallationRepositories);
+        $this->guardCredential(GithubAppToken::class);
 
         $this->record('installationRepositories', [$perPage]);
 
@@ -389,6 +423,7 @@ final class ProviderFake implements Provider
     public function allInstallationRepositories(int $perPage = 30): LazyCollection
     {
         $this->ensureSupported(Feature::ListInstallationRepositories);
+        $this->guardCredential(GithubAppToken::class);
 
         $this->record('allInstallationRepositories', [$perPage]);
 
@@ -398,6 +433,7 @@ final class ProviderFake implements Provider
     public function installation(string $id): Installation
     {
         $this->ensureSupported(Feature::FindInstallation);
+        $this->guardCredential(GithubApp::class);
 
         $this->record('installation', [$id]);
 
@@ -416,12 +452,13 @@ final class ProviderFake implements Provider
     public function listInstallations(int $perPage = 30): Page
     {
         $this->ensureSupported(Feature::ListInstallations);
+        $this->guardCredential(GithubApp::class);
 
         $this->record('listInstallations', [$perPage]);
 
         /** @var list<Installation> $items */
-        $items = $this->seeded['installations']
-            ?? (isset($this->seeded['installation']) ? [$this->seededInstallation()] : []);
+        $items = $this->seeds->values['installations']
+            ?? (isset($this->seeds->values['installation']) ? [$this->seededInstallation()] : []);
 
         return $this->page($items, $perPage);
     }
@@ -429,6 +466,7 @@ final class ProviderFake implements Provider
     public function organizationInstallation(string $organization): Installation
     {
         $this->ensureSupported(Feature::FindInstallation);
+        $this->guardCredential(GithubApp::class);
 
         $this->record('organizationInstallation', [$organization]);
 
@@ -438,6 +476,7 @@ final class ProviderFake implements Provider
     public function userInstallation(string $login): Installation
     {
         $this->ensureSupported(Feature::FindInstallation);
+        $this->guardCredential(GithubApp::class);
 
         $this->record('userInstallation', [$login]);
 
@@ -564,7 +603,7 @@ final class ProviderFake implements Provider
         $this->record('issue', [$path, $number]);
 
         /** @var Issue */
-        return $this->seeded['issue']
+        return $this->seeds->values['issue']
             ?? $this->list('issues')[0]
             ?? throw $this->unseeded('issue', 'seedIssue()');
     }
@@ -596,7 +635,7 @@ final class ProviderFake implements Provider
         $this->record('release', [$path, $tagOrId]);
 
         /** @var Release */
-        return $this->seeded['release']
+        return $this->seeds->values['release']
             ?? $this->list('releases')[0]
             ?? throw $this->unseeded('release', 'seedRelease()');
     }
@@ -618,7 +657,7 @@ final class ProviderFake implements Provider
         $this->record('compare', [$path, $base, $head]);
 
         /** @var Comparison */
-        return $this->seeded['comparison'] ?? new Comparison(
+        return $this->seeds->values['comparison'] ?? new Comparison(
             base: $base,
             head: $head,
             aheadBy: 0,
@@ -645,7 +684,7 @@ final class ProviderFake implements Provider
         $this->record('languages', [$path]);
 
         /** @var array<string, int> */
-        return $this->seeded['languages'] ?? [];
+        return $this->seeds->values['languages'] ?? [];
     }
 
     /**
@@ -664,7 +703,7 @@ final class ProviderFake implements Provider
         $this->record('searchRepositories', [$query, $perPage]);
 
         /** @var list<Repository> $items */
-        $items = $this->seeded['searchRepositories'] ?? $this->list('repositories');
+        $items = $this->seeds->values['searchRepositories'] ?? $this->list('repositories');
 
         return $this->page($items, $perPage);
     }
@@ -678,13 +717,14 @@ final class ProviderFake implements Provider
         }
 
         $this->driverChecks()?->validateNewRepository($data);
+        $this->guardAuthenticated();
 
         $this->record('createRepository', [$data]);
 
         // The seeded override still wins outright — a consumer that pinned the answer
         // gets it whatever the input said.
         /** @var Repository */
-        return $this->seeded['createRepository'] ?? new Repository(
+        return $this->seeds->values['createRepository'] ?? new Repository(
             provider: $this->name,
             id: 'fake',
             path: $data->owner !== null ? "{$data->owner}/{$data->name}" : $data->name,
@@ -706,6 +746,7 @@ final class ProviderFake implements Provider
     public function createBranch(string $path, NewBranch $data): string
     {
         $this->ensureSupported(Feature::CreateBranch);
+        $this->guardAuthenticated();
 
         $this->record('createBranch', [$path, $data]);
 
@@ -715,6 +756,7 @@ final class ProviderFake implements Provider
     public function createFile(string $path, NewFile $data): Commit
     {
         $this->ensureSupported(Feature::CreateFile);
+        $this->guardAuthenticated();
 
         $this->record('createFile', [$path, $data]);
 
@@ -724,6 +766,7 @@ final class ProviderFake implements Provider
     public function updateFile(string $path, UpdatedFile $data): Commit
     {
         $this->ensureSupported(Feature::UpdateFile);
+        $this->guardAuthenticated();
 
         $this->record('updateFile', [$path, $data]);
 
@@ -733,11 +776,12 @@ final class ProviderFake implements Provider
     public function createPullRequest(string $path, NewPullRequest $data): PullRequest
     {
         $this->ensureSupported(Feature::CreatePullRequest);
+        $this->guardAuthenticated();
 
         $this->record('createPullRequest', [$path, $data]);
 
         /** @var PullRequest */
-        return $this->seeded['pullRequest'] ?? new PullRequest(
+        return $this->seeds->values['pullRequest'] ?? new PullRequest(
             provider: $this->name,
             id: 'fake',
             number: 1,
@@ -762,6 +806,7 @@ final class ProviderFake implements Provider
     public function closePullRequest(string $path, int $number): PullRequest
     {
         $this->ensureSupported(Feature::ClosePullRequest);
+        $this->guardAuthenticated();
 
         $this->record('closePullRequest', [$path, $number]);
 
@@ -787,11 +832,12 @@ final class ProviderFake implements Provider
     public function approvePullRequest(string $path, int $number, ?string $body = null): string
     {
         $this->ensureSupported(Feature::ApprovePullRequest);
+        $this->guardAuthenticated();
 
         $this->record('approvePullRequest', [$path, $number, $body]);
 
         /** @var string */
-        return $this->seeded['approvalState'] ?? 'APPROVED';
+        return $this->seeds->values['approvalState'] ?? 'APPROVED';
     }
 
     /**
@@ -805,11 +851,12 @@ final class ProviderFake implements Provider
     public function reviewPullRequest(string $path, int $number, NewReview $data): PullRequestReview
     {
         $this->ensureSupported(Feature::ReviewPullRequest);
+        $this->guardAuthenticated();
 
         $this->record('reviewPullRequest', [$path, $number, $data]);
 
         /** @var PullRequestReview */
-        return $this->seeded['pullRequestReview'] ?? new PullRequestReview(
+        return $this->seeds->values['pullRequestReview'] ?? new PullRequestReview(
             provider: $this->name,
             id: 'fake-review',
             state: match ($data->event) {
@@ -847,22 +894,24 @@ final class ProviderFake implements Provider
         ?string $message = null,
     ): string {
         $this->ensureSupported(Feature::MergePullRequest);
+        $this->guardAuthenticated();
 
         $this->record('mergePullRequest', [$path, $number, $method, $sha, $title, $message]);
 
         /** @var string */
-        return $this->seeded['mergeCommit'] ?? 'fake-merge-sha';
+        return $this->seeds->values['mergeCommit'] ?? 'fake-merge-sha';
     }
 
     public function comment(string $path, NewComment $data): Comment
     {
         $this->ensureSupported(Feature::CreateComment);
         $this->driverChecks()?->validateComment($data);
+        $this->guardAuthenticated();
 
         $this->record('comment', [$path, $data]);
 
         /** @var Comment */
-        return $this->seeded['comment'] ?? new Comment(
+        return $this->seeds->values['comment'] ?? new Comment(
             id: 'fake',
             body: $data->body,
             author: new Author(name: 'fake', email: '', avatar: null),
@@ -874,11 +923,12 @@ final class ProviderFake implements Provider
     public function createRelease(string $path, NewRelease $data): Release
     {
         $this->ensureSupported(Feature::CreateRelease);
+        $this->guardAuthenticated();
 
         $this->record('createRelease', [$path, $data]);
 
         /** @var Release */
-        return $this->seeded['release'] ?? new Release(
+        return $this->seeds->values['release'] ?? new Release(
             provider: $this->name,
             id: 'fake',
             tagName: $data->tagName,
@@ -894,6 +944,7 @@ final class ProviderFake implements Provider
     public function createTag(string $path, NewTag $data): Tag
     {
         $this->ensureSupported(Feature::CreateTag);
+        $this->guardAuthenticated();
 
         $this->record('createTag', [$path, $data]);
 
@@ -992,18 +1043,19 @@ final class ProviderFake implements Provider
 
     public function batch(): Batch
     {
-        return new BatchFake($this, $this->git, $this->seededBatches);
+        return new BatchFake($this, $this->git, $this->seeds->batches);
     }
 
     public function createWebhook(string $path, NewWebhook $data): Webhook
     {
         $this->ensureSupported(Feature::CreateWebhook);
         $this->driverChecks()?->validateNewWebhook($data);
+        $this->guardAuthenticated();
 
         $this->record('createWebhook', [$path, $data]);
 
         /** @var Webhook|null $seeded */
-        $seeded = $this->seeded['createWebhook'] ?? null;
+        $seeded = $this->seeds->values['createWebhook'] ?? null;
 
         return $seeded ?? new Webhook(
             provider: $this->name,
@@ -1017,6 +1069,7 @@ final class ProviderFake implements Provider
     public function deleteWebhook(string $path, string $id): void
     {
         $this->ensureSupported(Feature::DeleteWebhook);
+        $this->guardAuthenticated();
 
         $this->record('deleteWebhook', [$path, $id]);
     }
@@ -1025,13 +1078,41 @@ final class ProviderFake implements Provider
     public function listWebhooks(string $path): array
     {
         $this->ensureSupported(Feature::ListWebhooks);
+        $this->guardAuthenticated();
 
         $this->record('listWebhooks', [$path]);
 
         /** @var list<Webhook> $hooks */
-        $hooks = $this->seeded['webhooks'] ?? [];
+        $hooks = $this->seeds->values['webhooks'] ?? [];
 
         return $hooks;
+    }
+
+    /** What the real driver throws for a call that needs a credential and has none. */
+    private function guardAuthenticated(): void
+    {
+        if (! $this->isAuthenticated()) {
+            throw InvalidCredentialsException::missing($this->name());
+        }
+    }
+
+    /**
+     * What the real driver throws for the wrong TYPE of credential — an app lookup with an
+     * installation token, say.
+     *
+     * @param  class-string<Credentials>  $required
+     */
+    private function guardCredential(string $required): void
+    {
+        $this->guardAuthenticated();
+
+        if (! $this->authentication instanceof $required) {
+            throw InvalidCredentialsException::wrongCredentialType(
+                $this->name(),
+                $required,
+                $this->authentication === null ? null : $this->authentication::class,
+            );
+        }
     }
 
     /** The real driver, for its input checks — none when a host bound a driver of its own shape. */
@@ -1043,7 +1124,7 @@ final class ProviderFake implements Provider
     private function seededPullRequest(?int $number = null): PullRequest
     {
         /** @var PullRequest|null $seeded */
-        $seeded = $this->seeded['pullRequest'] ?? $this->list('pullRequests')[0] ?? null;
+        $seeded = $this->seeds->values['pullRequest'] ?? $this->list('pullRequests')[0] ?? null;
 
         return $seeded ?? new PullRequest(
             provider: $this->name,
@@ -1063,7 +1144,7 @@ final class ProviderFake implements Provider
     private function writtenCommit(string $message): Commit
     {
         /** @var Commit */
-        return $this->seeded['commit'] ?? new Commit(
+        return $this->seeds->values['commit'] ?? new Commit(
             provider: $this->name,
             sha: 'fake-sha',
             message: $message,
@@ -1075,7 +1156,7 @@ final class ProviderFake implements Provider
 
     private function seed(string $key, mixed $value): self
     {
-        $this->seeded[$key] = $value;
+        $this->seeds->values[$key] = $value;
 
         return $this;
     }
@@ -1088,14 +1169,14 @@ final class ProviderFake implements Provider
     private function list(string $key): array
     {
         /** @var list<mixed> $items */
-        $items = $this->seeded[$key] ?? [];
+        $items = $this->seeds->values[$key] ?? [];
 
         return $items;
     }
 
     private function required(string $key, string $seeder): mixed
     {
-        return $this->seeded[$key] ?? throw $this->unseeded($key, $seeder);
+        return $this->seeds->values[$key] ?? throw $this->unseeded($key, $seeder);
     }
 
     /** Names the seeder to call, so a missing seed reads as a missing seed. */

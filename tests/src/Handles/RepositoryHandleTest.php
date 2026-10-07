@@ -99,6 +99,8 @@ it('fills the path into every repository read', function (): void {
 });
 
 it('fills the path into every repository write', function (): void {
+    fakeCredentials();
+
     $fake = Git::fake();
     $repo = Git::github()->repo('acme/app');
 
@@ -178,6 +180,8 @@ it('refuses refs that could step outside the repository', function (): void {
 });
 
 it('fails the webhook command cleanly on a path outside the repository', function (): void {
+    fakeCredentials();
+
     Git::fake();
 
     $this->artisan('git:webhook github acme/app/../other --list')
@@ -186,6 +190,8 @@ it('fails the webhook command cleanly on a path outside the repository', functio
 });
 
 it('fails the commits command cleanly on a path outside the repository', function (): void {
+    fakeCredentials();
+
     Git::fake();
 
     $this->artisan('git:commits github acme/../x')

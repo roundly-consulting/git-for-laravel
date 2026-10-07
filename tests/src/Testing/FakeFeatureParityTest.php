@@ -65,6 +65,8 @@ it('refuses every operation the faked forge lacks', function (ProviderName $name
 ]);
 
 it('still drives every supported operation on the fake', function () {
+    fakeCredentials();
+
     $fake = Git::fake();
 
     expect(Git::github()->repo('acme/app')->pullRequest(1)->merge())->toBe('fake-merge-sha')

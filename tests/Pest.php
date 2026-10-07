@@ -153,6 +153,24 @@ if (! function_exists('rateLimitKey')) {
     }
 }
 
+if (! function_exists('fakeCredentials')) {
+    /**
+     * What a host suite configures for `Git::fake()`: a token per forge and fake GitHub App
+     * keys. The fake authenticates exactly as production does — a write with no credential
+     * and `githubApp()` with no app configured both throw — but never signs or sends with them.
+     */
+    function fakeCredentials(): void
+    {
+        config()->set([
+            'git.providers.github.token' => 'ghp_fake',
+            'git.providers.gitlab.token' => 'glpat_fake',
+            'git.providers.bitbucket.token' => 'bb_fake',
+            'git.providers.github.app.id' => '123',
+            'git.providers.github.app.private_key' => 'fake-key',
+        ]);
+    }
+}
+
 if (! function_exists('appCredentials')) {
     /**
      * GitHub App credentials over a fresh keypair. Shared here, not in one test file: the

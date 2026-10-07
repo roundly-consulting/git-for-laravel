@@ -14,6 +14,8 @@ use RoundlyConsulting\Git\Facades\Git;
 use RoundlyConsulting\Git\Handles\PullRequestHandle;
 
 it('drives one pull request through its handle', function (): void {
+    fakeCredentials();
+
     $fake = Git::fake();
     $fake->github()->seedMergeCommit('merge-sha');
 
