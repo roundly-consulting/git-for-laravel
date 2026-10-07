@@ -23,6 +23,9 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   `InvalidArgumentException` naming `git.providers.<provider>.webhook_secret` when no secret is
   configured, or when the `$secret` passed differs from it, and sends nothing. Such a hook used to
   be created, and the route answered every delivery with 403. An explicit `$url` is unchanged.
+- A `GithubAppToken` built without an `apiBaseUrl` now mints its installation token at the
+  configured `git.providers.github.url` (GitHub Enterprise), not at api.github.com. The mint
+  failed there as a rejected credential.
 
 ## 1.0.0 - 2026-10-03
 

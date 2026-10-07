@@ -2,8 +2,11 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
 use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
+use RoundlyConsulting\Git\Facades\Git;
 
 /*
  * The web host (clone URLs, the app install page) is derived from the configured API URL.
@@ -60,3 +63,49 @@ it('percent-encodes the credential inside a clone url', function (): void {
 it('guards the repository path of a flat clone url', function (): void {
     bitbucket()->cloneUrlForRepository('acme/../victim', 'jane', Token::from('x'));
 })->throws(OutOfScopeException::class);
+
+it('mints a hand-built app token at the configured enterprise host', function (): void {
+    // GithubAppToken::for() without an apiBaseUrl is what the docs' scoping example builds;
+    // its mint has to go to the same host every other request of the provider goes to.
+    config()->set('git.providers.github.url', 'https://ghe.example.com/api/v3');
+
+    Http::fake([
+        'https://ghe.example.com/api/v3/app/installations/999/access_tokens' => Http::response(['token' => 'ghs_ghe', 'expires_at' => now()->addHour()->toIso8601String()], 201),
+        'https://ghe.example.com/api/v3/repos/o/r' => Http::response(snapshotData('github/repository')),
+    ]);
+
+    [$privateKey] = generateRsaKeypair();
+
+    Git::github(GithubAppToken::for('123', '999', $privateKey))->repository('o/r');
+
+    Http::assertSent(fn ($request): bool => $request->url() === 'https://ghe.example.com/api/v3/app/installations/999/access_tokens');
+    Http::assertNotSent(fn ($request): bool => str_contains($request->url(), 'api.github.com'));
+});
+
+it('lets an explicit apiBaseUrl win over the configured host', function (): void {
+    config()->set('git.providers.github.url', 'https://ghe.example.com/api/v3');
+
+    [$privateKey] = generateRsaKeypair();
+
+    expect(GithubAppToken::for('123', '999', $privateKey, 'https://other.example.com/api/v3')->baseUrl())
+        ->toBe('https://other.example.com/api/v3')
+        ->and(GithubAppToken::for('123', '999', $privateKey)->baseUrl())->toBe('https://ghe.example.com/api/v3');
+});
+
+it('keys an enterprise mint apart from a github.com mint of the same ids', function (): void {
+    [$privateKey] = generateRsaKeypair();
+    $credential = GithubAppToken::for('123', '999', $privateKey);
+
+    Http::fake([
+        'https://api.github.com/app/installations/999/access_tokens' => Http::response(['token' => 'ghs_public', 'expires_at' => now()->addHour()->toIso8601String()], 201),
+        'https://ghe.example.com/api/v3/app/installations/999/access_tokens' => Http::response(['token' => 'ghs_ghe', 'expires_at' => now()->addHour()->toIso8601String()], 201),
+    ]);
+
+    config()->set('git.providers.github.url', null);
+    $public = $credential->accessToken();
+
+    config()->set('git.providers.github.url', 'https://ghe.example.com/api/v3');
+    $enterprise = $credential->accessToken();
+
+    expect($public)->toBe('ghs_public')->and($enterprise)->toBe('ghs_ghe');
+});

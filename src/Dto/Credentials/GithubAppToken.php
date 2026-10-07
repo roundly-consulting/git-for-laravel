@@ -7,7 +7,9 @@ namespace RoundlyConsulting\Git\Dto\Credentials;
 use RoundlyConsulting\Git\Auth\TokenManager;
 use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
 use RoundlyConsulting\Git\Dto\Input\InstallationTokenScope;
+use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
+use RoundlyConsulting\Git\Support\Settings;
 use SensitiveParameter;
 
 final readonly class GithubAppToken extends Credentials implements RefreshableCredentials
@@ -64,9 +66,17 @@ final readonly class GithubAppToken extends Credentials implements RefreshableCr
         return resolve(TokenManager::class)->installationToken($this);
     }
 
+    /**
+     * The API host the token is minted at: the explicit `apiBaseUrl`, else the configured
+     * `git.providers.github.url` — the host the provider sends every other request to —
+     * else the public API. A hand-built credential on a GitHub Enterprise deployment would
+     * otherwise mint at github.com and fail as a rejected credential.
+     */
     public function baseUrl(): string
     {
-        return $this->apiBaseUrl ?? 'https://api.github.com';
+        return $this->apiBaseUrl
+            ?? Settings::optionalString('git.providers.github.url', config('git.providers.github.url'))
+            ?? ProviderName::Github->apiBaseUrl();
     }
 
     /** @return array<string, mixed> */
