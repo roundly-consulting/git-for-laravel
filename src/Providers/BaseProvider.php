@@ -79,6 +79,12 @@ abstract class BaseProvider implements Provider
     /** The largest page any of the three forges serves. */
     protected const MAX_PER_PAGE = 100;
 
+    /**
+     * How many pages of a repository's webhooks `listWebhooks()` walks at most — a bound
+     * on a pathological answer, far above any real repository's hook count.
+     */
+    protected const MAX_WEBHOOK_PAGES = 50;
+
     protected ?Credentials $authentication = null;
 
     protected ?RateLimitStatus $rateLimit = null;

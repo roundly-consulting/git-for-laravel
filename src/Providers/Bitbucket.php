@@ -30,6 +30,9 @@ use RoundlyConsulting\Git\Query\CommitQuery;
 
 class Bitbucket extends BaseProvider
 {
+    /** Bitbucket's default `pagelen`, which every paginated endpoint accepts. */
+    private const WEBHOOK_PAGE_SIZE = 10;
+
     /** @var array<string, list<string>> canonical event => Bitbucket's events for it */
     private const WEBHOOK_EVENTS = [
         'push' => ['repo:push'],
@@ -306,23 +309,34 @@ class Bitbucket extends BaseProvider
         $this->send('DELETE', $this->repositoryUrl($path).'/hooks/'.$this->webhookSegment($id));
     }
 
-    /** @return list<Webhook> */
+    /**
+     * Every hook on the repository, following Bitbucket's `next` link to the last page.
+     *
+     * Pages of {@see WEBHOOK_PAGE_SIZE}: Bitbucket's maximum `pagelen` differs per
+     * endpoint and answers `400 Invalid pagelen` above it, so this asks for its default.
+     *
+     * @return list<Webhook>
+     */
     public function listWebhooks(string $path): array
     {
         $this->guardSupported(Feature::ListWebhooks);
         $this->guardAuthenticated();
 
-        /** @var list<array<string, mixed>> $hooks */
-        $hooks = $this->get($this->repositoryUrl($path).'/hooks')->json('values') ?? [];
-
-        return array_map(fn (array $hook): Webhook => new Webhook(
-            provider: $this->providerName(),
-            id: (string) $hook['uuid'],
-            url: $hook['url'] ?? '',
-            events: $this->canonicalWebhookEvents(is_array($hook['events'] ?? null) ? $hook['events'] : []),
-            active: (bool) ($hook['active'] ?? true),
-            raw: $hook,
-        ), $hooks);
+        return $this->collectPages(
+            $this->repositoryUrl($path).'/hooks',
+            [],
+            self::WEBHOOK_PAGE_SIZE,
+            self::MAX_WEBHOOK_PAGES,
+            fn (array $hook): Webhook => new Webhook(
+                provider: $this->providerName(),
+                id: (string) $hook['uuid'],
+                url: $hook['url'] ?? '',
+                events: $this->canonicalWebhookEvents(is_array($hook['events'] ?? null) ? $hook['events'] : []),
+                active: (bool) ($hook['active'] ?? true),
+                raw: $hook,
+            ),
+            itemsKey: 'values',
+        );
     }
 
     public function cloneUrlForRepository(string $path, string $username, Credentials $credentials): string

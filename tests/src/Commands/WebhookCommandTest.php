@@ -10,7 +10,7 @@ beforeEach(function () {
 
 it('registers a webhook with an explicit url', function () {
     Http::fake([
-        '*/repos/acme/api/hooks' => Http::sequence()
+        '*/repos/acme/api/hooks*' => Http::sequence()
             ->push([])
             ->push(['id' => 11, 'config' => ['url' => 'https://app.test/hook'], 'events' => ['push'], 'active' => true]),
     ]);
@@ -22,7 +22,7 @@ it('registers a webhook with an explicit url', function () {
 
 it('lists existing webhooks', function () {
     Http::fake([
-        '*/repos/acme/api/hooks' => Http::response([
+        '*/repos/acme/api/hooks*' => Http::response([
             ['id' => 11, 'config' => ['url' => 'https://app.test/hook'], 'events' => ['push'], 'active' => true],
         ]),
     ]);

@@ -39,7 +39,7 @@ it('subscribes bitbucket to every pull request transition', function (): void {
 });
 
 it('reads bitbucket hook events back in the canonical names', function (): void {
-    Http::fake(['*/hooks' => Http::response(['values' => [[
+    Http::fake(['*/hooks*' => Http::response(['values' => [[
         'uuid' => '{0b1e7a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b}', 'url' => 'https://hook', 'active' => true,
         'events' => ['repo:push', 'pullrequest:created', 'pullrequest:fulfilled', 'issue:created'],
     ]]])]);
@@ -83,7 +83,7 @@ it('refuses a gitlab event it cannot express instead of dropping it', function (
 })->throws(InvalidArgumentException::class, 'deployment_status');
 
 it('reads gitlab hook state from its alert status, not from ssl verification', function (): void {
-    Http::fake(['*/hooks' => Http::response([
+    Http::fake(['*/hooks*' => Http::response([
         ['id' => 3, 'url' => 'https://a', 'push_events' => true, 'merge_requests_events' => true, 'enable_ssl_verification' => false, 'alert_status' => 'executable'],
         ['id' => 4, 'url' => 'https://b', 'push_events' => true, 'enable_ssl_verification' => true, 'alert_status' => 'disabled'],
     ])]);

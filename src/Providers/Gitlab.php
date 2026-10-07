@@ -618,16 +618,23 @@ class Gitlab extends BaseProvider
         $this->send('DELETE', '/api/v4/projects/'.$this->encode($path).'/hooks/'.$this->webhookSegment($id));
     }
 
-    /** @return list<Webhook> */
+    /**
+     * Every hook on the project — all pages, not just GitLab's first twenty.
+     *
+     * @return list<Webhook>
+     */
     public function listWebhooks(string $path): array
     {
         $this->guardSupported(Feature::ListWebhooks);
         $this->guardAuthenticated();
 
-        /** @var list<array<string, mixed>> $hooks */
-        $hooks = $this->get('/api/v4/projects/'.$this->encode($path).'/hooks')->json();
-
-        return array_map(fn (array $hook): Webhook => $this->mapWebhook($hook, ''), $hooks);
+        return $this->collectPages(
+            '/api/v4/projects/'.$this->encode($path).'/hooks',
+            [],
+            self::MAX_PER_PAGE,
+            self::MAX_WEBHOOK_PAGES,
+            fn (array $hook): Webhook => $this->mapWebhook($hook, ''),
+        );
     }
 
     /**

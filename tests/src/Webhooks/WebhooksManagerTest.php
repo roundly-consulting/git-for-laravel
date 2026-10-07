@@ -16,7 +16,7 @@ function githubAuthed(): Github
 
 it('registers a hook with the derived url and configured secret', function () {
     Http::fake([
-        '*/repos/acme/api/hooks' => Http::sequence()
+        '*/repos/acme/api/hooks*' => Http::sequence()
             ->push([])
             ->push(['id' => 7, 'config' => ['url' => route('git.webhooks', ['provider' => 'github'])], 'events' => ['push'], 'active' => true]),
     ]);
@@ -41,7 +41,7 @@ it('is idempotent and does not create a duplicate hook', function () {
     $url = route('git.webhooks', ['provider' => 'github']);
 
     Http::fake([
-        '*/repos/acme/api/hooks' => Http::response([
+        '*/repos/acme/api/hooks*' => Http::response([
             ['id' => 7, 'config' => ['url' => $url], 'events' => ['push'], 'active' => true],
         ]),
     ]);
@@ -55,7 +55,7 @@ it('is idempotent and does not create a duplicate hook', function () {
 
 it('accepts an explicit url override', function () {
     Http::fake([
-        '*/repos/acme/api/hooks' => Http::sequence()
+        '*/repos/acme/api/hooks*' => Http::sequence()
             ->push([])
             ->push(['id' => 9, 'config' => ['url' => 'https://override.test/hook'], 'events' => ['push'], 'active' => true]),
     ]);
@@ -70,7 +70,7 @@ it('probes and deletes hooks by url', function () {
 
     Http::fake([
         '*/repos/acme/api/hooks/7' => Http::response([], 204),
-        '*/repos/acme/api/hooks' => Http::response([
+        '*/repos/acme/api/hooks*' => Http::response([
             ['id' => 7, 'config' => ['url' => $url], 'events' => ['push'], 'active' => true],
         ]),
     ]);
@@ -85,7 +85,7 @@ it('probes and deletes hooks by url', function () {
 it('throws when deriving a url with webhooks disabled', function () {
     config()->set('git.webhooks.enabled', false);
 
-    Http::fake(['*/repos/acme/api/hooks' => Http::response([])]);
+    Http::fake(['*/repos/acme/api/hooks*' => Http::response([])]);
 
     expect(fn () => githubAuthed()->repo('acme/api')->webhooks()->register())
         ->toThrow(InvalidArgumentException::class);

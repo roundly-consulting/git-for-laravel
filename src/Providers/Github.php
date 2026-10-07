@@ -975,23 +975,31 @@ class Github extends BaseProvider
         $this->send('DELETE', $this->repos($path).'/hooks/'.$this->webhookSegment($id));
     }
 
-    /** @return list<Webhook> */
+    /**
+     * Every hook on the repository — all pages, not just the first: `register()` and
+     * `deleteByUrl()` decide on this list, so a hook on page two must not be missed.
+     *
+     * @return list<Webhook>
+     */
     public function listWebhooks(string $path): array
     {
         $this->guardSupported(Feature::ListWebhooks);
         $this->guardAuthenticated();
 
-        /** @var list<array<string, mixed>> $hooks */
-        $hooks = $this->get($this->repos($path).'/hooks')->json();
-
-        return array_map(fn (array $hook): Webhook => new Webhook(
-            provider: $this->providerName(),
-            id: (string) $hook['id'],
-            url: $hook['config']['url'] ?? '',
-            events: $hook['events'] ?? [],
-            active: (bool) ($hook['active'] ?? true),
-            raw: $hook,
-        ), $hooks);
+        return $this->collectPages(
+            $this->repos($path).'/hooks',
+            [],
+            self::MAX_PER_PAGE,
+            self::MAX_WEBHOOK_PAGES,
+            fn (array $hook): Webhook => new Webhook(
+                provider: $this->providerName(),
+                id: (string) $hook['id'],
+                url: $hook['config']['url'] ?? '',
+                events: $hook['events'] ?? [],
+                active: (bool) ($hook['active'] ?? true),
+                raw: $hook,
+            ),
+        );
     }
 
     /**
