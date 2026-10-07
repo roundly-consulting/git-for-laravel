@@ -35,6 +35,9 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   `app.installation_id` when `Git::github()` should act as the installation. Seed through
   `Git::fake()->fakeFor(ProviderName::…)`, which needs no credential.
 
+- GitLab `createBranch()` now returns the new ref, `refs/heads/<name>`, as documented and as
+  GitHub and the fake return it. It used to return the bare branch name.
+
 ### Fixed
 
 - GitHub `issues()` no longer lists pull requests as issues. GitHub's issues endpoint returns

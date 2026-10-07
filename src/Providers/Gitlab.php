@@ -438,6 +438,10 @@ class Gitlab extends BaseProvider
         }
     }
 
+    /**
+     * Create a branch; returns the new ref (`refs/heads/<name>`), as every driver does —
+     * GitLab answers with the branch object, whose `name` is the bare branch name.
+     */
     public function createBranch(string $path, NewBranch $data): string
     {
         $this->guardSupported(Feature::CreateBranch);
@@ -448,7 +452,7 @@ class Gitlab extends BaseProvider
             'ref' => $data->fromRef,
         ]);
 
-        return $response->json('name');
+        return 'refs/heads/'.$response->json('name');
     }
 
     /**

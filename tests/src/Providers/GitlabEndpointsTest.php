@@ -129,7 +129,8 @@ it('creates a repository, branch, files and a merge request', function () {
     ]);
 
     expect(gitlab()->createRepository(new NewRepository('acme', true))->name)->toBe('acme')
-        ->and(gitlab()->createBranch('g/p', new NewBranch('feature', 'main')))->toBe('feature')
+        // The contract (RepositoryHandle::createBranch) returns the new REF, as GitHub and the fake do.
+        ->and(gitlab()->createBranch('g/p', new NewBranch('feature', 'main')))->toBe('refs/heads/feature')
         ->and(gitlab()->createFile('g/p', new NewFile('a.txt', 'x', 'add', 'main'))->sha)->toBe('c1')
         ->and(gitlab()->updateFile('g/p', new UpdatedFile('a.txt', 'y', 'edit', 'main', 'old'))->sha)->toBe('c1')
         ->and(gitlab()->createPullRequest('g/p', new NewPullRequest('MR', 'feature', 'main'))->number)->toBe(4);
