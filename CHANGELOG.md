@@ -6,6 +6,8 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+## 1.1.3 - 2026-10-07
+
 ### Fixed
 
 - GitLab `WebhookEvent::pullRequest()` returns `null` for every hook but a Merge Request Hook
