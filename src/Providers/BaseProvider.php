@@ -1302,6 +1302,19 @@ abstract class BaseProvider implements ListsWebhookEvents, Provider
      */
     protected function pageSize(int $perPage): int
     {
+        return self::boundedPageSize($perPage);
+    }
+
+    /**
+     * {@see pageSize()} — public so `Testing\ProviderFake` refuses and caps a page size
+     * exactly as the drivers do.
+     *
+     * @internal the drivers' and the fake's shared page-size rule.
+     *
+     * @throws InvalidArgumentException when below 1
+     */
+    public static function boundedPageSize(int $perPage): int
+    {
         if ($perPage < 1) {
             throw new InvalidArgumentException("Results per page must be at least 1; got [{$perPage}].");
         }

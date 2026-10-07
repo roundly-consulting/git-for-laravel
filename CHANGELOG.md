@@ -92,6 +92,10 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   'pull_request'])` cannot silently keep a push-only hook. The same events in any order (and
   their native spellings, like GitLab's `merge_requests_events`) still return the existing hook
   without a request.
+- `Git::fake()` list reads now page like the real drivers: a `$perPage` below 1 throws
+  `InvalidArgumentException`, a size above 100 is capped at 100, and the seeded items are sliced
+  by page with `hasMore` set — so `commits()->perPage(2)->get(3)` answers the fifth seeded
+  commit instead of the whole set again.
 
 ## 1.0.0 - 2026-10-03
 

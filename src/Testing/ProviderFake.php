@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Git\Testing;
 
 use Illuminate\Support\Carbon;
 use Illuminate\Support\LazyCollection;
+use InvalidArgumentException;
 use RoundlyConsulting\Git\Batch\Batch;
 use RoundlyConsulting\Git\Batch\BatchResult;
 use RoundlyConsulting\Git\Concerns\ProvidesHandles;
@@ -385,9 +386,11 @@ final class ProviderFake implements ListsWebhookEvents, Provider
     {
         $this->ensureSupported(Feature::ListRepositories);
 
+        $size = $this->pageSize($perPage);
+
         $this->record('repositories', [$perPage]);
 
-        return $this->page($this->list('repositories'), $perPage);
+        return $this->page($this->list('repositories'), $size);
     }
 
     /** @return LazyCollection<int, Repository> */
@@ -397,7 +400,12 @@ final class ProviderFake implements ListsWebhookEvents, Provider
 
         $this->record('allRepositories', [$perPage]);
 
-        return LazyCollection::make($this->list('repositories'));
+        // Lazy like the real walk, which refuses a page size below 1 on its first page.
+        return LazyCollection::make(function () use ($perPage) {
+            $this->pageSize($perPage);
+
+            yield from $this->list('repositories');
+        });
     }
 
     /**
@@ -415,9 +423,11 @@ final class ProviderFake implements ListsWebhookEvents, Provider
         $this->ensureSupported(Feature::ListInstallationRepositories);
         $this->guardCredential(GithubAppToken::class);
 
+        $size = $this->pageSize($perPage);
+
         $this->record('installationRepositories', [$perPage]);
 
-        return $this->page($this->list('repositories'), $perPage);
+        return $this->page($this->list('repositories'), $size);
     }
 
     /** @return LazyCollection<int, Repository> */
@@ -428,7 +438,12 @@ final class ProviderFake implements ListsWebhookEvents, Provider
 
         $this->record('allInstallationRepositories', [$perPage]);
 
-        return LazyCollection::make($this->list('repositories'));
+        // Lazy like the real walk, which refuses a page size below 1 on its first page.
+        return LazyCollection::make(function () use ($perPage) {
+            $this->pageSize($perPage);
+
+            yield from $this->list('repositories');
+        });
     }
 
     public function installation(string $id): Installation
@@ -455,13 +470,15 @@ final class ProviderFake implements ListsWebhookEvents, Provider
         $this->ensureSupported(Feature::ListInstallations);
         $this->guardCredential(GithubApp::class);
 
+        $size = $this->pageSize($perPage);
+
         $this->record('listInstallations', [$perPage]);
 
         /** @var list<Installation> $items */
         $items = $this->seeds->values['installations']
             ?? (isset($this->seeds->values['installation']) ? [$this->seededInstallation()] : []);
 
-        return $this->page($items, $perPage);
+        return $this->page($items, $size);
     }
 
     public function organizationInstallation(string $organization): Installation
@@ -529,9 +546,11 @@ final class ProviderFake implements ListsWebhookEvents, Provider
     {
         $this->ensureSupported(Feature::ListRepositoryBranches);
 
+        $size = $this->pageSize($perPage);
+
         $this->record('branches', [$path, $perPage]);
 
-        return $this->page($this->list('branches'), $perPage);
+        return $this->page($this->list('branches'), $size);
     }
 
     public function commit(string $path, string $commit): Commit
@@ -549,7 +568,7 @@ final class ProviderFake implements ListsWebhookEvents, Provider
      *
      * The filters a caller chains (`->branch()`, `->since()`) are applied by the REAL
      * provider's query translation, which the fake has no HTTP layer to run — so they
-     * are recorded rather than honoured, and every page answers the seeded set. A filter
+     * are recorded rather than honoured, and the pages walk the seeded set. A filter
      * the forge cannot apply at all (Bitbucket's author and dates) is refused, as the
      * real driver refuses it.
      */
@@ -562,9 +581,11 @@ final class ProviderFake implements ListsWebhookEvents, Provider
         return new CommitQuery(function (array $filters, int $page, int $perPage): Page {
             $this->driverChecks()?->validateCommitFilters($filters);
 
+            $size = $this->pageSize($perPage);
+
             $this->record('commits.get', [$filters, $page, $perPage]);
 
-            return $this->page($this->list('commits'), $perPage, $page);
+            return $this->page($this->list('commits'), $size, $page);
         });
     }
 
@@ -573,9 +594,11 @@ final class ProviderFake implements ListsWebhookEvents, Provider
     {
         $this->ensureSupported(Feature::ListPullRequests);
 
+        $size = $this->pageSize($perPage);
+
         $this->record('pullRequests', [$path, $state, $perPage]);
 
-        return $this->page($this->list('pullRequests'), $perPage);
+        return $this->page($this->list('pullRequests'), $size);
     }
 
     public function pullRequest(string $path, int $number): PullRequest
@@ -592,9 +615,11 @@ final class ProviderFake implements ListsWebhookEvents, Provider
     {
         $this->ensureSupported(Feature::ListIssues);
 
+        $size = $this->pageSize($perPage);
+
         $this->record('issues', [$path, $state, $perPage]);
 
-        return $this->page($this->list('issues'), $perPage);
+        return $this->page($this->list('issues'), $size);
     }
 
     public function issue(string $path, int $number): Issue
@@ -614,9 +639,11 @@ final class ProviderFake implements ListsWebhookEvents, Provider
     {
         $this->ensureSupported(Feature::ListTags);
 
+        $size = $this->pageSize($perPage);
+
         $this->record('tags', [$path, $perPage]);
 
-        return $this->page($this->list('tags'), $perPage);
+        return $this->page($this->list('tags'), $size);
     }
 
     /** @return Page<Release> */
@@ -624,9 +651,11 @@ final class ProviderFake implements ListsWebhookEvents, Provider
     {
         $this->ensureSupported(Feature::ListReleases);
 
+        $size = $this->pageSize($perPage);
+
         $this->record('releases', [$path, $perPage]);
 
-        return $this->page($this->list('releases'), $perPage);
+        return $this->page($this->list('releases'), $size);
     }
 
     public function release(string $path, string $tagOrId): Release
@@ -672,9 +701,11 @@ final class ProviderFake implements ListsWebhookEvents, Provider
     {
         $this->ensureSupported(Feature::ListContributors);
 
+        $size = $this->pageSize($perPage);
+
         $this->record('contributors', [$path, $perPage]);
 
-        return $this->page($this->list('contributors'), $perPage);
+        return $this->page($this->list('contributors'), $size);
     }
 
     /** @return array<string, int> */
@@ -701,12 +732,14 @@ final class ProviderFake implements ListsWebhookEvents, Provider
     {
         $this->ensureSupported(Feature::SearchRepositories);
 
+        $size = $this->pageSize($perPage);
+
         $this->record('searchRepositories', [$query, $perPage]);
 
         /** @var list<Repository> $items */
         $items = $this->seeds->values['searchRepositories'] ?? $this->list('repositories');
 
-        return $this->page($items, $perPage);
+        return $this->page($items, $size);
     }
 
     public function createRepository(NewRepository $data): Repository
@@ -875,6 +908,8 @@ final class ProviderFake implements ListsWebhookEvents, Provider
     public function pullRequestReviews(string $path, int $number, int $perPage = 100, int $maxPages = 5): PullRequestReviews
     {
         $this->ensureSupported(Feature::ListPullRequestReviews);
+
+        $this->pageSize($perPage);
 
         $this->record('pullRequestReviews', [$path, $number, $perPage, $maxPages]);
 
@@ -1201,6 +1236,19 @@ final class ProviderFake implements ListsWebhookEvents, Provider
     }
 
     /**
+     * The page size the real drivers would send: below 1 refused, above 100 capped.
+     *
+     * @throws InvalidArgumentException when below 1
+     */
+    private function pageSize(int $perPage): int
+    {
+        return BaseProvider::boundedPageSize($perPage);
+    }
+
+    /**
+     * One page of a seeded list — sliced as the forge would page it, with `hasMore` true
+     * while seeded items remain past it.
+     *
      * @template T
      *
      * @param  list<T>  $items
@@ -1208,7 +1256,12 @@ final class ProviderFake implements ListsWebhookEvents, Provider
      */
     private function page(array $items, int $perPage, int $page = 1): Page
     {
-        return new Page(items: $items, perPage: $perPage, page: $page, hasMore: false);
+        return new Page(
+            items: array_slice($items, max(0, $page - 1) * $perPage, $perPage),
+            perPage: $perPage,
+            page: $page,
+            hasMore: count($items) > $page * $perPage,
+        );
     }
 
     /** @param list<mixed> $arguments */

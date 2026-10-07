@@ -398,3 +398,63 @@ it('answers an unseeded pull request with the number that was asked for', functi
     expect($provider->pullRequest('o/r', 12)->number)->toBe(12)
         ->and($provider->closePullRequest('o/r', 12)->number)->toBe(12);
 });
+
+describe('pagination', function (): void {
+    /** @return list<Repository> */
+    function fivePagedRepositories(): array
+    {
+        return array_map(fn (int $i): Repository => new Repository(
+            provider: ProviderName::Github, id: (string) $i, path: "acme/repo-{$i}", name: "repo-{$i}",
+            description: null, defaultBranch: 'main', owner: new Owner(id: '1', name: 'acme', avatar: null),
+            createdAt: Carbon::now(), lastActivityAt: Carbon::now(),
+        ), range(1, 5));
+    }
+
+    it('refuses a page size below 1, as the real driver does, before recording the call', function () {
+        $fake = Git::fake();
+
+        expect(fn () => Git::github()->repositories(0))
+            ->toThrow(InvalidArgumentException::class, 'Results per page must be at least 1; got [0].');
+
+        $fake->assertNotSent(ProviderName::Github, 'repositories');
+    });
+
+    it('slices the seeded list into pages and says when more follow', function () {
+        Git::fake()->fakeFor(ProviderName::Github)->seedRepositories(fivePagedRepositories());
+
+        $page = Git::github()->repositories(2);
+
+        expect($page->items)->toHaveCount(2)
+            ->and($page->hasMore)->toBeTrue()
+            ->and($page->perPage)->toBe(2);
+    });
+
+    it('caps a page at the forges maximum of 100', function () {
+        Git::fake();
+
+        expect(Git::github()->repositories(500)->perPage)->toBe(100);
+    });
+
+    it('walks the seeded commits page by page', function () {
+        $commits = array_map(fn (int $i): Commit => new Commit(ProviderName::Github, "sha{$i}", "m{$i}", new Author('n', 'e', null), null, Carbon::now()), range(1, 5));
+
+        Git::fake()->fakeFor(ProviderName::Github)->seedCommits($commits);
+
+        $query = Git::github()->repo('acme/app')->commits()->perPage(2);
+        $last = $query->get(3);
+
+        expect($last->items)->toHaveCount(1)
+            ->and($last->items[0]->sha)->toBe('sha5')
+            ->and($last->hasMore)->toBeFalse()
+            ->and($query->get(1)->items[0]->sha)->toBe('sha1')
+            ->and($query->lazy()->map(fn (Commit $commit): string => $commit->sha)->all())->toBe(['sha1', 'sha2', 'sha3', 'sha4', 'sha5']);
+    });
+});
+
+it('refuses a lazy walk with a page size below 1 once it is walked, as the real driver does', function () {
+    Git::fake();
+
+    $walk = Git::github()->allRepositories(0);
+
+    expect(fn () => $walk->all())->toThrow(InvalidArgumentException::class);
+});
