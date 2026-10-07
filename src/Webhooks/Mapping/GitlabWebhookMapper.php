@@ -37,21 +37,25 @@ final class GitlabWebhookMapper implements WebhookPayloadMapper
     }
 
     /**
-     * The merge request of a Merge Request Hook; `null` for any other hook.
+     * The merge request the hook is about; `null` when it carries none.
      *
-     * Issue, comment, pipeline and other hooks carry `object_attributes` too — the issue, the
-     * note, the pipeline — so only the hook's own `object_kind` says it is a merge request.
+     * A Merge Request Hook carries it as `object_attributes`; a Note Hook on a merge request
+     * and a merge request pipeline's Pipeline Hook as a top-level `merge_request`. Issue,
+     * comment and pipeline hooks carry `object_attributes` too — the issue, the note, the
+     * pipeline — so the hook's own `object_kind` decides where to look.
      *
      * @param  array<string, mixed>  $payload
      */
     public function pullRequest(array $payload): ?PullRequest
     {
-        if (($payload['object_kind'] ?? null) !== 'merge_request' || ! is_array($payload['object_attributes'] ?? null)) {
+        $mergeRequest = $this->mergeRequestOf($payload);
+
+        if ($mergeRequest === null) {
             return null;
         }
 
         return $this->resources->pullRequest($this->normalizeMergeRequest(
-            $payload['object_attributes'],
+            $mergeRequest,
             is_array($payload['user'] ?? null) ? $payload['user'] : null,
         ));
     }
@@ -111,12 +115,34 @@ final class GitlabWebhookMapper implements WebhookPayloadMapper
     }
 
     /**
-     * A merge request hook's `object_attributes` in the REST shape the resource mapper reads.
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>|null
+     */
+    private function mergeRequestOf(array $payload): ?array
+    {
+        $attributes = $payload['object_attributes'] ?? null;
+        $nested = is_array($payload['merge_request'] ?? null) ? $payload['merge_request'] : null;
+
+        return match ($payload['object_kind'] ?? null) {
+            'merge_request' => is_array($attributes) ? $attributes : null,
+            'note' => is_array($attributes) && ($attributes['noteable_type'] ?? null) === 'MergeRequest' ? $nested : null,
+            'pipeline' => $nested,
+            default => null,
+        };
+    }
+
+    /**
+     * A hook's merge request in the REST shape the resource mapper reads.
      *
-     * The hook carries `url` where REST has `web_url`, and only an `author_id` where REST
-     * has an `author` object. The top-level `user` is whoever TRIGGERED the event, so it
-     * stands in for the author only when it is the author; otherwise the author is unknown
-     * (null) rather than wrongly the reviewer who merged.
+     * Hooks carry `url` where REST has `web_url` (a Note Hook's `merge_request` has neither,
+     * so its url is null), and only an `author_id` where REST has an `author` object. The
+     * top-level `user` is whoever TRIGGERED the event, so it stands in for the author only
+     * when it is the author; otherwise the author is unknown (null) rather than wrongly the
+     * reviewer who merged or the commenter.
+     *
+     * A merge request pipeline's slim `merge_request` carries no `created_at`: `createdAt` is
+     * then the time of mapping, as for a hook repository — fetch the pull request through the
+     * API for the real one.
      *
      * @param  array<string, mixed>  $attributes
      * @param  array<string, mixed>|null  $user
@@ -125,6 +151,7 @@ final class GitlabWebhookMapper implements WebhookPayloadMapper
     private function normalizeMergeRequest(array $attributes, ?array $user): array
     {
         $attributes['web_url'] ??= $attributes['url'] ?? null;
+        $attributes['created_at'] ??= 'now';
 
         if (! isset($attributes['author'])
             && $user !== null

@@ -6,6 +6,15 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Fixed
+
+- GitLab `WebhookEvent::pullRequest()` maps the merge request a Note Hook on a merge request and a
+  merge request pipeline's Pipeline Hook carry (their top-level `merge_request`), as GitHub review
+  events and Bitbucket pull request comment events already return the pull request; since 1.1.3 it
+  returned `null` for them. A Note Hook's merge request has no `url`, and a pipeline's no `body`,
+  `author` or `draft` flag; its `createdAt` is the time of mapping, as the hook carries none.
+  Issue, issue/commit/snippet comment, branch pipeline and push hooks still give `null`.
+
 ## 1.1.3 - 2026-10-07
 
 ### Fixed

@@ -150,17 +150,91 @@ it('names no author when someone other than the author triggered the hook', func
         ->and($mr->pullRequest()?->url)->toBe('https://gitlab.example.com/gitlabhq/gitlab-test/-/merge_requests/1');
 });
 
-it('maps no pull request from a gitlab hook that is not a merge request hook', function (string $fixture, string $type) {
+it('maps no pull request from a gitlab hook that carries no merge request', function (array $payload, string $type) {
     // These hooks carry `object_attributes` too — an issue, a pipeline, a comment — which used
     // to be read as a merge request: the issue came back as a PullRequest, the others threw.
-    $event = new WebhookEvent(ProviderName::Gitlab, $type, webhookFixture('gitlab', $fixture));
+    $event = new WebhookEvent(ProviderName::Gitlab, $type, $payload);
 
     expect($event->pullRequest())->toBeNull();
 })->with([
-    'issue hook' => ['issue', 'Issue Hook'],
-    'pipeline hook' => ['pipeline', 'Pipeline Hook'],
-    'comment on a merge request' => ['note_merge_request', 'Note Hook'],
+    'issue hook' => [fn () => webhookFixture('gitlab', 'issue'), 'Issue Hook'],
+    'comment on an issue' => [fn () => webhookFixture('gitlab', 'note_issue'), 'Note Hook'],
+    'branch pipeline (merge_request: null)' => [function () {
+        $payload = webhookFixture('gitlab', 'pipeline');
+        $payload['object_attributes']['source'] = 'push';
+        $payload['merge_request'] = null;
+
+        return $payload;
+    }, 'Pipeline Hook'],
+    'comment on a merge request whose hook lacks the merge request' => [function () {
+        $payload = webhookFixture('gitlab', 'note_merge_request');
+        unset($payload['merge_request']);
+
+        return $payload;
+    }, 'Note Hook'],
+    'comment on another noteable next to a merge_request object' => [function () {
+        $payload = webhookFixture('gitlab', 'note_merge_request');
+        $payload['object_attributes']['noteable_type'] = 'Commit';
+
+        return $payload;
+    }, 'Note Hook'],
+    'push hook' => [fn () => webhookFixture('gitlab', 'push_branch'), 'Push Hook'],
+    'tag push hook' => [fn () => webhookFixture('gitlab', 'tag_push'), 'Tag Push Hook'],
 ]);
+
+it('maps the merge request a gitlab comment on a merge request carries', function () {
+    // A Note Hook on a merge request carries the merge request as a top-level `merge_request`
+    // object — as GitHub review events carry `pull_request` and Bitbucket comment events
+    // `pullrequest`. It has no `url` and only an `author_id`.
+    $mr = (new WebhookEvent(ProviderName::Gitlab, 'Note Hook', webhookFixture('gitlab', 'note_merge_request')))->pullRequest();
+
+    expect($mr?->provider)->toBe(ProviderName::Gitlab)
+        ->and($mr?->id)->toBe('7')
+        ->and($mr?->number)->toBe(1)
+        ->and($mr?->title)->toBe('Tempora et eos debitis quae laborum et.')
+        ->and($mr?->body)->toStartWith('Et voluptas corrupti assumenda temporibus.')
+        ->and($mr?->state)->toBe(ResourceState::Open)
+        ->and($mr?->sourceBranch)->toBe('master')
+        ->and($mr?->targetBranch)->toBe('markdown')
+        ->and($mr?->author)->toBeNull()
+        ->and($mr?->url)->toBeNull()
+        ->and($mr?->createdAt->toIso8601ZuluString())->toBe('2015-03-01T20:12:53Z')
+        ->and($mr?->draft)->toBeFalse()
+        ->and($mr?->raw)->toMatchArray(['id' => 7, 'iid' => 1, 'author_id' => 8]);
+});
+
+it('names the commenter as the author when the merge request author commented', function () {
+    $payload = webhookFixture('gitlab', 'note_merge_request');
+    $payload['user']['id'] = 8;
+    $payload['merge_request']['draft'] = true;
+
+    $mr = (new WebhookEvent(ProviderName::Gitlab, 'Note Hook', $payload))->pullRequest();
+
+    expect($mr?->author?->name)->toBe('root')
+        ->and($mr?->draft)->toBeTrue();
+});
+
+it('maps the merge request a gitlab merge request pipeline carries', function () {
+    // A merge request pipeline's hook carries a slim `merge_request`: no description, author,
+    // draft flag or creation time. `createdAt` falls back to the time of mapping.
+    Carbon::setTestNow('2026-10-07 12:00:00');
+
+    $mr = (new WebhookEvent(ProviderName::Gitlab, 'Pipeline Hook', webhookFixture('gitlab', 'pipeline')))->pullRequest();
+
+    expect($mr?->provider)->toBe(ProviderName::Gitlab)
+        ->and($mr?->id)->toBe('1')
+        ->and($mr?->number)->toBe(1)
+        ->and($mr?->title)->toBe('Test')
+        ->and($mr?->body)->toBeNull()
+        ->and($mr?->state)->toBe(ResourceState::Open)
+        ->and($mr?->sourceBranch)->toBe('test')
+        ->and($mr?->targetBranch)->toBe('master')
+        ->and($mr?->author)->toBeNull()
+        ->and($mr?->url)->toBe('http://192.168.64.1:3005/gitlab-org/gitlab-test/merge_requests/1')
+        ->and($mr?->createdAt->toIso8601ZuluString())->toBe('2026-10-07T12:00:00Z')
+        ->and($mr?->draft)->toBeFalse()
+        ->and($mr?->raw)->toMatchArray(['id' => 1, 'iid' => 1, 'detailed_merge_status' => 'mergeable']);
+});
 
 it('still maps the merge request of a gitlab merge request hook', function (string $fixture, int $number, string $title) {
     $mr = new WebhookEvent(ProviderName::Gitlab, 'Merge Request Hook', webhookFixture('gitlab', $fixture));
