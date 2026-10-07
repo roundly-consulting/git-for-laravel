@@ -66,7 +66,7 @@ class Batch
             $specs[$filePath] = ['url' => $url, 'query' => $query];
         }
 
-        return $this->resolve($specs, fn (Response $response): FileContent => $this->provider->mapFileContent($response->json()));
+        return $this->resolve($specs, fn (Response $response, string $filePath): FileContent => $this->provider->fileContent($path, $filePath, $response->json()));
     }
 
     /**
@@ -89,7 +89,7 @@ class Batch
      * @template T
      *
      * @param  array<string, array{url: string, query: array<string, mixed>}>  $specs
-     * @param  callable(Response): T  $map
+     * @param  callable(Response, string): T  $map  the response and the caller's key for it
      * @return BatchResult<T>
      */
     private function resolve(array $specs, callable $map): BatchResult
@@ -106,7 +106,7 @@ class Batch
                 continue;
             }
 
-            $results[$key] = $map($outcome);
+            $results[$key] = $map($outcome, (string) $key);
         }
 
         return new BatchResult($results, $errors);

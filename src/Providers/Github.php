@@ -46,6 +46,7 @@ use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
+use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
 use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Mapping\GithubMapper;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
@@ -395,7 +396,46 @@ class Github extends BaseProvider
 
         $response = $this->get($this->repos($path).'/contents/'.$this->fileSegments($filePath), $ref !== null ? ['ref' => $ref] : []);
 
-        return $this->mapFileContent($response->json());
+        return $this->fileContent($path, $filePath, $response->json());
+    }
+
+    /**
+     * The whole file, whatever its size.
+     *
+     * Between 1 and 100 MB GitHub's contents endpoint answers `encoding: none` and an EMPTY
+     * `content` — the bytes are only on the blob endpoint, so they are read from there. A
+     * caller handed `''` with the real `sha` would edit an empty file and overwrite the
+     * real one. A directory path answers a LIST of entries, which is refused by name.
+     *
+     * @internal the batch plumbing.
+     *
+     * @param  array<mixed>  $raw
+     *
+     * @throws OutOfScopeException when the path is a directory
+     */
+    public function fileContent(string $path, string $filePath, array $raw): FileContent
+    {
+        if (array_is_list($raw)) {
+            throw OutOfScopeException::notAFile($filePath);
+        }
+
+        $file = $this->mapFileContent($raw);
+
+        if (($raw['encoding'] ?? null) !== 'none' || $file->sha === null) {
+            return $file;
+        }
+
+        $blob = $this->get($this->repos($path).'/git/blobs/'.$this->refSegments('blob sha', $file->sha))->json();
+        $content = (string) ($blob['content'] ?? '');
+
+        return new FileContent(
+            path: $file->path,
+            content: ($blob['encoding'] ?? 'base64') === 'base64' ? (string) base64_decode($content, true) : $content,
+            sha: $file->sha,
+            size: $file->size,
+            url: $file->url,
+            raw: $raw,
+        );
     }
 
     /** @internal the batch plumbing. */

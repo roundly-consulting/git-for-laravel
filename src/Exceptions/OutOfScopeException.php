@@ -31,6 +31,12 @@ final class OutOfScopeException extends InvalidArgumentException
         );
     }
 
+    /** A path that names a directory where one file is read. */
+    public static function notAFile(string $path): self
+    {
+        return new self("[{$path}] is a directory, not a file: contents() reads one file.");
+    }
+
     public static function identifier(string $label, string $value): self
     {
         return new self("[{$value}] is not a valid {$label}.");

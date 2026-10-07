@@ -31,6 +31,7 @@ use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Enums\ReviewEvent;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
+use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
 use RoundlyConsulting\Git\Facades\Git;
 
 it('lists pull requests', function () {
@@ -152,6 +153,46 @@ it('fetches decoded file contents', function () {
 
     expect(github()->contents('o/r', 'README.md', 'main'))
         ->toBeInstanceOf(FileContent::class)->content->toBe('hello')->sha->toBe('abc');
+});
+
+it('reads a file over 1 MB through its blob, rather than answering it empty', function () {
+    // Between 1 and 100 MB GitHub's contents endpoint answers `encoding: none` with an EMPTY
+    // `content`; the bytes are only on the blob endpoint.
+    $large = str_repeat("SQLite amalgamation line\n", 50_000);
+    $sha = '9a2b0f2d3c4e5f60718293a4b5c6d7e8f9012345';
+
+    Http::fake([
+        '*/repos/o/r/contents/deps/sqlite/sqlite3.c*' => Http::response([
+            'type' => 'file', 'encoding' => 'none', 'size' => strlen($large), 'name' => 'sqlite3.c',
+            'path' => 'deps/sqlite/sqlite3.c', 'content' => '', 'sha' => $sha,
+            'url' => 'https://api.github.com/repos/o/r/contents/deps/sqlite/sqlite3.c?ref=main',
+            'git_url' => "https://api.github.com/repos/o/r/git/blobs/{$sha}",
+            'html_url' => 'https://github.com/o/r/blob/main/deps/sqlite/sqlite3.c',
+            'download_url' => 'https://raw.githubusercontent.com/o/r/main/deps/sqlite/sqlite3.c',
+        ]),
+        "*/repos/o/r/git/blobs/{$sha}" => Http::response([
+            'sha' => $sha, 'node_id' => 'B_x', 'size' => strlen($large),
+            'url' => "https://api.github.com/repos/o/r/git/blobs/{$sha}",
+            'content' => chunk_split(base64_encode($large), 60, "\n"), 'encoding' => 'base64',
+        ]),
+    ]);
+
+    $file = github()->contents('o/r', 'deps/sqlite/sqlite3.c', 'main');
+
+    expect($file->content)->toBe($large)
+        ->and($file->size)->toBe(strlen($large))
+        ->and($file->sha)->toBe($sha)
+        ->and($file->path)->toBe('deps/sqlite/sqlite3.c');
+});
+
+it('refuses a directory path with an exception that names it', function () {
+    Http::fake(['*/repos/o/r/contents/docs*' => Http::response([
+        ['type' => 'file', 'name' => 'intro.md', 'path' => 'docs/intro.md', 'sha' => 'a1', 'size' => 10],
+        ['type' => 'dir', 'name' => 'guides', 'path' => 'docs/guides', 'sha' => 'b2', 'size' => 0],
+    ])]);
+
+    expect(fn () => github()->contents('o/r', 'docs'))
+        ->toThrow(OutOfScopeException::class, '[docs] is a directory');
 });
 
 it('compares two refs', function () {

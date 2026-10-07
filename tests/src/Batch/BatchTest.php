@@ -133,6 +133,19 @@ it('fans out file contents and pull requests', function () {
         ->and($prs->get('main')->number)->toBe(7);
 });
 
+it('reads a batched file over 1 MB through its blob', function () {
+    $sha = '9a2b0f2d3c4e5f60718293a4b5c6d7e8f9012345';
+
+    Http::fake([
+        '*/repos/acme/api/contents/dist/app.js*' => Http::response([
+            'type' => 'file', 'encoding' => 'none', 'size' => 1_200_000, 'path' => 'dist/app.js', 'content' => '', 'sha' => $sha,
+        ]),
+        "*/repos/acme/api/git/blobs/{$sha}" => Http::response(['sha' => $sha, 'content' => base64_encode('bundle'), 'encoding' => 'base64']),
+    ]);
+
+    expect(github()->batch()->contents('acme/api', ['dist/app.js'])->get('dist/app.js')->content)->toBe('bundle');
+});
+
 it('reports rate-limited keys without throwing the whole batch', function () {
     config()->set('git.providers.github.rateLimits', ['owner' => 'app', 'maxAttempts' => 1, 'timespan' => 'hour']);
 

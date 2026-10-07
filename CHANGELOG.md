@@ -61,6 +61,10 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   forge's response stays reachable as `getPrevious()`; any other `400` is unchanged.
 - GitHub `release($tagOrId)` now finds a release by its numeric id, as `Feature::FindRelease`
   promises. An all-digit value no tag answers to is looked up as a release id; a tag still wins.
+- GitHub `contents()` (and `batch()->contents()`) now return the whole file for files between
+  1 and 100 MB, read through the blob endpoint. They used to come back with an empty `content`
+  next to the real `sha`. A directory path now throws `OutOfScopeException::notAFile()` naming
+  the path instead of an `ErrorException`.
 
 ## 1.0.0 - 2026-10-03
 

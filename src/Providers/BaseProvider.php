@@ -278,6 +278,19 @@ abstract class BaseProvider implements Provider
         $this->featureNotSupported();
     }
 
+    /**
+     * A file-contents response as the file it describes — {@see mapFileContent()}, plus
+     * whatever follow-up the forge needs to hand over the whole file.
+     *
+     * @internal the batch plumbing.
+     *
+     * @param  array<mixed>  $raw  the contents response for `$filePath` in `$path`
+     */
+    public function fileContent(string $path, string $filePath, array $raw): FileContent
+    {
+        return $this->mapFileContent($raw);
+    }
+
     public function repository(string $path): Repository
     {
         $this->featureNotSupported();
