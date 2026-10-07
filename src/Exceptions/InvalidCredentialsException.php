@@ -30,6 +30,18 @@ final class InvalidCredentialsException extends Exception
         );
     }
 
+    /**
+     * The OAuth token endpoint answered `400 invalid_grant` to a refresh: the refresh token
+     * expired, was revoked, or was already spent. The user has to authorise again.
+     */
+    public static function refreshTokenRejected(string $provider, ?Throwable $previous = null): self
+    {
+        return new self(
+            "Provider [{$provider}] refused the refresh token (invalid_grant): it expired, was revoked, or was already used.",
+            previous: $previous,
+        );
+    }
+
     public static function invalidKey(string $reason = 'The supplied private key could not be read.'): self
     {
         return new self("Invalid GitHub App private key: {$reason}");

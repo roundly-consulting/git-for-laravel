@@ -182,13 +182,19 @@ final class TokenManager
                 'client_secret' => $cred->clientSecret,
             ]);
 
+        $host = (string) (parse_url($cred->tokenUrl, PHP_URL_HOST) ?: 'OAuth');
+
         // The token endpoint refusing the client itself (a wrong or rotated secret) is a
         // credential failure, like a 401 anywhere else in this package.
         if ($response->status() === 401) {
-            throw InvalidCredentialsException::rejected(
-                (string) (parse_url($cred->tokenUrl, PHP_URL_HOST) ?: 'OAuth'),
-                $response->toException(),
-            );
+            throw InvalidCredentialsException::rejected($host, $response->toException());
+        }
+
+        // RFC 6749 §5.2: a refresh token that expired, was revoked or was already used is
+        // `400 invalid_grant` — "reconnect required", never a blip worth retrying. Any other
+        // 400 stays the RequestException below.
+        if ($response->status() === 400 && $response->json('error') === 'invalid_grant') {
+            throw InvalidCredentialsException::refreshTokenRejected($host, $response->toException());
         }
 
         $response->throw();

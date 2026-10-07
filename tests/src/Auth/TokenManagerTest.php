@@ -379,3 +379,34 @@ it('reports a rejected oauth client as a credential failure', function () {
 
     app(TokenManager::class)->oauthToken($cred);
 })->throws(InvalidCredentialsException::class, '401');
+
+it('reports a revoked or expired refresh token as a credential failure', function () {
+    // RFC 6749 §5.2: a refresh token that is expired, revoked or already used is answered
+    // `400 invalid_grant` — GitLab (Doorkeeper) sends exactly this body.
+    Http::fake(['https://token.test' => Http::response([
+        'error' => 'invalid_grant',
+        'error_description' => 'The provided authorization grant is invalid, expired, revoked, does not match the redirection URI used in the authorization request, or was issued to another client.',
+    ], 400)]);
+
+    $cred = OauthToken::for('expired', 'revoked-refresh', 'client', 'secret', 'https://token.test', Carbon::now()->subMinute());
+
+    try {
+        app(TokenManager::class)->oauthToken($cred);
+        $this->fail('Expected the refresh to fail.');
+    } catch (InvalidCredentialsException $exception) {
+        expect($exception->getMessage())->toContain('invalid_grant')
+            ->and($exception->getPrevious())->toBeInstanceOf(RequestException::class);
+    }
+});
+
+it('leaves any other refresh failure a retryable http error', function (int $status, array $body) {
+    Http::fake(['https://token.test' => Http::response($body, $status)]);
+
+    $cred = OauthToken::for('expired', 'refresh', 'client', 'secret', 'https://token.test', Carbon::now()->subMinute());
+
+    expect(fn () => app(TokenManager::class)->oauthToken($cred))->toThrow(RequestException::class);
+})->with([
+    'another 400' => [400, ['error' => 'invalid_request']],
+    'a 400 with no body' => [400, []],
+    'a server error' => [503, ['error' => 'temporarily_unavailable']],
+]);

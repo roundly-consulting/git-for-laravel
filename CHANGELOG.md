@@ -26,6 +26,10 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 - A `GithubAppToken` built without an `apiBaseUrl` now mints its installation token at the
   configured `git.providers.github.url` (GitHub Enterprise), not at api.github.com. The mint
   failed there as a rejected credential.
+- An OAuth refresh answered `400 invalid_grant` (an expired, revoked or already-used refresh
+  token, as GitLab returns it) now throws `InvalidCredentialsException::refreshTokenRejected()` —
+  the package's "reconnect required" signal — instead of a retryable `RequestException`. The
+  forge's response stays reachable as `getPrevious()`; any other `400` is unchanged.
 
 ## 1.0.0 - 2026-10-03
 
