@@ -6,6 +6,8 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+## 1.1.0 - 2026-10-07
+
 ### Changed
 
 - Client-side rate limiting keeps one budget per credential: the limiter key is now
@@ -43,6 +45,9 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   segment that would read as `.` or `..` once cut at a `?` or `#` is refused as a traversal.
 - Documentation: the README no longer says its example runs unchanged on GitLab and Bitbucket;
   it names the calls each one lacks.
+- Documentation: the README hero image uses an absolute URL, so it renders on Packagist and other
+  sites.
+- Maintenance: `composer.json` `homepage` and `support.docs` link to the package documentation.
 
 ### Fixed
 
