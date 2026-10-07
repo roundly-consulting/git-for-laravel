@@ -23,6 +23,7 @@ use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\CommentTarget;
 use RoundlyConsulting\Git\Enums\Feature;
+use RoundlyConsulting\Git\Enums\ResourceState;
 use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Mapping\BitbucketMapper;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
@@ -421,11 +422,17 @@ class Bitbucket extends BaseProvider
         ];
     }
 
-    protected function mapState(string $state): string
+    /**
+     * The `state` filter Bitbucket reads. `closed` is every state the package calls closed
+     * ({@see ResourceState}) — declined and superseded — sent as a repeated parameter.
+     *
+     * @return string|list<string>
+     */
+    protected function mapState(string $state): string|array
     {
         return match ($state) {
             'open' => 'OPEN',
-            'closed' => 'DECLINED',
+            'closed' => ['DECLINED', 'SUPERSEDED'],
             'merged' => 'MERGED',
             default => strtoupper($state),
         };

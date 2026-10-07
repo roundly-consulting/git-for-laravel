@@ -1078,7 +1078,7 @@ abstract class BaseProvider implements Provider
         }
 
         $start = microtime(true);
-        $response = $this->throttled($this->key(), fn (): Response => $request->get($url, $query));
+        $response = $this->throttled($this->key(), fn (): Response => $request->get($url, $this->wireQuery($query)));
         $this->log('GET', $url, $response->status(), $start);
         $this->captureRateLimit($response);
 
@@ -1098,6 +1098,33 @@ abstract class BaseProvider implements Provider
         }
 
         return $response;
+    }
+
+    /**
+     * The query as the forge reads it.
+     *
+     * A list value repeats its key — `state=DECLINED&state=SUPERSEDED`, Bitbucket's form for
+     * "any of these" — where PHP's own encoding would send `state[0]=…&state[1]=…`, which
+     * the forge does not read. A query without a list goes out exactly as before.
+     *
+     * @param  array<string, mixed>  $query
+     * @return array<string, mixed>|string
+     */
+    protected function wireQuery(array $query): array|string
+    {
+        if (array_filter($query, fn (mixed $value): bool => is_array($value)) === []) {
+            return $query;
+        }
+
+        $pairs = [];
+
+        foreach ($query as $key => $value) {
+            foreach (is_array($value) ? $value : [$value] as $item) {
+                $pairs[] = rawurlencode($key).'='.rawurlencode(is_scalar($item) ? (string) $item : '');
+            }
+        }
+
+        return implode('&', $pairs);
     }
 
     /**

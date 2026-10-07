@@ -73,6 +73,9 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   otherwise `null`. Both used to be `null`.
 - GitLab and Bitbucket pull requests (REST and webhook) now report `draft: true` for a draft.
   It was always `false`.
+- Bitbucket `pullRequests($path, 'closed')` now includes superseded pull requests: it asks for
+  `state=DECLINED&state=SUPERSEDED`, matching what `ResourceState` calls closed. It used to ask
+  for declined ones only.
 
 ## 1.0.0 - 2026-10-03
 

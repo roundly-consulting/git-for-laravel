@@ -10,6 +10,7 @@ use RoundlyConsulting\Git\Dto\Input\NewRepository;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\PullRequest;
 use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Enums\ResourceState;
 use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 
 it('lists pull requests', function () {
@@ -23,6 +24,35 @@ it('lists pull requests', function () {
     expect(bitbucket()->pullRequests('o/r')->first())
         ->toBeInstanceOf(PullRequest::class)->number->toBe(5)->sourceBranch->toBe('feature');
 });
+
+it('asks for every closed state when listing closed pull requests', function () {
+    // Bitbucket reads a repeated `state` parameter as "any of these"; SUPERSEDED counts as
+    // closed (ResourceState), so leaving it out drops pull requests the package calls closed.
+    Http::fake(['*/pullrequests*' => Http::response(['pagelen' => 30, 'page' => 1, 'size' => 1, 'values' => [[
+        'type' => 'pullrequest', 'id' => 9, 'title' => 'Old approach', 'description' => '', 'state' => 'SUPERSEDED',
+        'source' => ['branch' => ['name' => 'old']], 'destination' => ['branch' => ['name' => 'main']],
+        'author' => ['display_name' => 'John'], 'links' => ['html' => ['href' => 'https://bitbucket.org/o/r/pull-requests/9']],
+        'created_on' => '2020-01-01T00:00:00.000000+00:00',
+    ]]])]);
+
+    expect(bitbucket()->pullRequests('o/r', 'closed')->first()?->state)->toBe(ResourceState::Closed);
+
+    Http::assertSent(function ($request): bool {
+        $query = (string) parse_url($request->url(), PHP_URL_QUERY);
+
+        return str_contains($query, 'state=DECLINED&state=SUPERSEDED')
+            && ! str_contains(rawurldecode($query), 'state[');
+    });
+});
+
+it('keeps sending a single state for open and merged pull requests', function (string $state, string $wire) {
+    Http::fake(['*/pullrequests*' => Http::response(['values' => []])]);
+
+    bitbucket()->pullRequests('o/r', $state);
+
+    Http::assertSent(fn ($request): bool => str_contains($request->url(), "state={$wire}&")
+        && substr_count($request->url(), 'state=') === 1);
+})->with([['open', 'OPEN'], ['merged', 'MERGED'], ['all', 'ALL']]);
 
 it('gets a single pull request', function () {
     Http::fake(['*/pullrequests/5' => Http::response([
