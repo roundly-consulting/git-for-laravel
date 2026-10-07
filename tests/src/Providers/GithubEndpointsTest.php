@@ -115,6 +115,36 @@ it('lists tags and releases', function () {
         ->and(github()->release('o/r', 'v1.0'))->name->toBe('One');
 });
 
+it('finds a release by its numeric id when no tag has that name', function () {
+    Http::fake([
+        '*/repos/o/r/releases/tags/12345' => Http::response(['message' => 'Not Found', 'documentation_url' => 'https://docs.github.com/rest/releases/releases#get-a-release-by-tag-name'], 404),
+        '*/repos/o/r/releases/12345' => Http::response([
+            'id' => 12345, 'tag_name' => 'v2.0.0', 'name' => 'Two', 'body' => 'notes', 'draft' => false,
+            'prerelease' => false, 'html_url' => 'https://github.com/o/r/releases/tag/v2.0.0', 'created_at' => '2026-01-01T00:00:00Z',
+        ]),
+    ]);
+
+    expect(github()->release('o/r', '12345'))->tagName->toBe('v2.0.0')->id->toBe('12345');
+});
+
+it('prefers a tag that is all digits over the release id fallback', function () {
+    Http::fake(['*/repos/o/r/releases/tags/2026' => Http::response([
+        'id' => 7, 'tag_name' => '2026', 'name' => 'Year', 'draft' => false, 'prerelease' => false, 'created_at' => '2026-01-01T00:00:00Z',
+    ])]);
+
+    expect(github()->release('o/r', '2026'))->tagName->toBe('2026');
+
+    Http::assertSentCount(1);
+});
+
+it('never looks a named tag up as a release id', function () {
+    Http::fake(['*/repos/o/r/releases/tags/v9.9' => Http::response(['message' => 'Not Found'], 404)]);
+
+    expect(fn () => github()->release('o/r', 'v9.9'))->toThrow(RequestException::class);
+
+    Http::assertSentCount(1);
+});
+
 it('fetches decoded file contents', function () {
     Http::fake(['*/repos/o/r/contents/README.md*' => Http::response([
         'path' => 'README.md', 'content' => base64_encode('hello'), 'sha' => 'abc', 'size' => 5, 'html_url' => 'u',

@@ -59,6 +59,8 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   token, as GitLab returns it) now throws `InvalidCredentialsException::refreshTokenRejected()` —
   the package's "reconnect required" signal — instead of a retryable `RequestException`. The
   forge's response stays reachable as `getPrevious()`; any other `400` is unchanged.
+- GitHub `release($tagOrId)` now finds a release by its numeric id, as `Feature::FindRelease`
+  promises. An all-digit value no tag answers to is looked up as a release id; a tag still wins.
 
 ## 1.0.0 - 2026-10-03
 

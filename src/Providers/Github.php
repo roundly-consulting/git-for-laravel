@@ -369,11 +369,24 @@ class Github extends BaseProvider
         );
     }
 
+    /**
+     * A release by tag — or, for an all-digit value no tag answers to, by GitHub's numeric
+     * release id. The tag is tried first, so a tag that happens to be all digits (`2026`)
+     * still wins.
+     */
     public function release(string $path, string $tagOrId): Release
     {
         $this->guardSupported(Feature::FindRelease);
 
-        return $this->mapper()->release($this->get($this->repos($path).'/releases/tags/'.$this->refSegments('release tag', $tagOrId))->json());
+        try {
+            return $this->mapper()->release($this->get($this->repos($path).'/releases/tags/'.$this->refSegments('release tag', $tagOrId))->json());
+        } catch (RequestException $exception) {
+            if ($exception->response->status() !== 404 || ! ctype_digit($tagOrId)) {
+                throw $exception;
+            }
+        }
+
+        return $this->mapper()->release($this->get($this->repos($path).'/releases/'.PathGuard::numeric('release id', $tagOrId))->json());
     }
 
     public function contents(string $path, string $filePath, ?string $ref = null): FileContent
