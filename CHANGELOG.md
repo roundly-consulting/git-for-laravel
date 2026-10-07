@@ -34,7 +34,6 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   (numeric) and `app.private_key` (any string) for `Git::githubApp()`, and
   `app.installation_id` when `Git::github()` should act as the installation. Seed through
   `Git::fake()->fakeFor(ProviderName::…)`, which needs no credential.
-
 - GitLab `createBranch()` now returns the new ref, `refs/heads/<name>`, as documented and as
   GitHub and the fake return it. It used to return the bare branch name.
 - File paths may now contain `#` and `?`, and refs `#` (`contents('docs/C#/intro.md')`,
@@ -42,6 +41,8 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   used to be refused with `OutOfScopeException` for no reason. Repository paths and account
   names still refuse both, refs still refuse `?`, and `\` and NUL stay refused everywhere. A
   segment that would read as `.` or `..` once cut at a `?` or `#` is refused as a traversal.
+- Documentation: the README no longer says its example runs unchanged on GitLab and Bitbucket;
+  it names the calls each one lacks.
 
 ### Fixed
 

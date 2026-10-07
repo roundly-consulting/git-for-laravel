@@ -42,7 +42,7 @@ Pick a forge and scope it to one repository:
 ```php
 use RoundlyConsulting\Git\Facades\Git;
 
-$repo = Git::github()->repo('acme/app');       // or Git::gitlab(), Git::bitbucket()
+$repo = Git::github()->repo('acme/app');       // also Git::gitlab(), Git::bitbucket() — see below
 
 $repo->get()->defaultBranch;                   // "main"
 $repo->pullRequests('open');                   // Page<PullRequest>
@@ -67,6 +67,11 @@ $pr = $repo->createPullRequest(new NewPullRequest('Add CI', 'feature/ci', 'main'
 $repo->pullRequest($pr->number)->comment('Ready to ship');
 $repo->pullRequest($pr->number)->merge(MergeMethod::Squash); // the merge commit's sha
 ```
+
+Not every forge offers every call: GitLab cannot `merge()` here, and Bitbucket has no
+`contents()`, `since()` filter, `createBranch()`, `createFile()` or `merge()`. Ask
+`Git::bitbucket()->supports(Feature::…)` first — an unsupported call throws
+`FeatureNotSupportedException`.
 
 <!-- roundly-docs:start -->
 ## Documentation
