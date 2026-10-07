@@ -11,6 +11,9 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 - Bitbucket `pullRequests()` caps `$perPage` at 50, the most Bitbucket's pull request endpoint
   takes: 51–100 used to answer `400 Invalid pagelen`. Bitbucket's other lists keep their own
   limits, and `Git::fake()` pages a Bitbucket pull request list the same way.
+- GitLab `WebhookEvent::repository()` no longer throws a `TypeError` on real hook payloads,
+  whose `project.namespace` is the namespace's name (a string) rather than the REST object. The
+  owner is read from `path_with_namespace`; the name stays on `owner->raw['name']`.
 
 ## 1.1.0 - 2026-10-07
 

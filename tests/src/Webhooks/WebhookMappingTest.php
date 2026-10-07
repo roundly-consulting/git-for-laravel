@@ -54,6 +54,19 @@ it('maps the url and the author of a real gitlab merge request hook', function (
         ->and($mr->pullRequest()?->number)->toBe(1);
 });
 
+it('maps the repository of a real gitlab hook, whose project namespace is a string', function () {
+    // A real hook's `project.namespace` is the namespace's display NAME, not the REST
+    // object — it used to be read as `namespace.id` and threw a TypeError.
+    $mr = new WebhookEvent(ProviderName::Gitlab, 'Merge Request Hook', webhookFixture('gitlab', 'merge_request_opened'));
+
+    expect($mr->repository()?->path)->toBe('gitlabhq/gitlab-test')
+        ->and($mr->repository()?->name)->toBe('gitlab-test')
+        ->and($mr->repository()?->id)->toBe('14')
+        ->and($mr->repository()?->defaultBranch)->toBe('master')
+        ->and($mr->repository()?->owner->name)->toBe('gitlabhq')
+        ->and($mr->repository()?->owner->raw)->toMatchArray(['name' => 'GitlabHQ']);
+});
+
 it('names no author when someone other than the author triggered the hook', function () {
     $payload = webhookFixture('gitlab', 'merge_request_opened');
     $payload['user'] = ['id' => 1, 'name' => 'Administrator', 'username' => 'root', 'avatar_url' => null, 'email' => '[REDACTED]'];

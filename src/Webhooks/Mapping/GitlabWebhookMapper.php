@@ -131,6 +131,9 @@ final class GitlabWebhookMapper implements WebhookPayloadMapper
      * GitLab webhook projects carry `path_with_namespace` but not always the
      * REST fields the resource mapper reads.
      *
+     * A real hook's `namespace` is the namespace's display NAME (a string), where REST has
+     * an object; it is rebuilt as that object, keeping the name.
+     *
      * @param  array<string, mixed>  $project
      * @return array<string, mixed>
      */
@@ -139,10 +142,16 @@ final class GitlabWebhookMapper implements WebhookPayloadMapper
         $project['path'] ??= str((string) ($project['path_with_namespace'] ?? ''))->afterLast('/')->toString();
         $project['default_branch'] ??= '';
         $project['created_at'] ??= 'now';
-        $project['namespace'] ??= [
-            'id' => $project['namespace_id'] ?? 0,
-            'path' => str((string) ($project['path_with_namespace'] ?? ''))->beforeLast('/')->toString(),
-        ];
+
+        if (! is_array($project['namespace'] ?? null)) {
+            $name = $project['namespace'] ?? null;
+
+            $project['namespace'] = [
+                'id' => $project['namespace_id'] ?? 0,
+                'path' => str((string) ($project['path_with_namespace'] ?? ''))->beforeLast('/')->toString(),
+                ...(is_string($name) ? ['name' => $name] : []),
+            ];
+        }
 
         return $project;
     }
