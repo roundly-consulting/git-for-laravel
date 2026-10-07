@@ -16,6 +16,9 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 - `listWebhooks()` and `repo(...)->webhooks()->all()` now read every page of hooks on all three
   forges, not only the first. A hook beyond page one was missed, so `register()` created a
   duplicate and `deleteByUrl()` / `registered()` did not see it.
+- The webhook route now reads a GitHub delivery sent with the `application/x-www-form-urlencoded`
+  content type (GitHub's default for hooks added in its UI). Its events used to carry an empty
+  payload; the `payload` field is now decoded from the signed body.
 
 ## 1.0.0 - 2026-10-03
 

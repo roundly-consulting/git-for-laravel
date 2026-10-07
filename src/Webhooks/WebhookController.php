@@ -31,13 +31,10 @@ final class WebhookController
             return new JsonResponse(['message' => 'Invalid signature.'], 403);
         }
 
-        /** @var array<string, mixed> $payload */
-        $payload = $request->json()->all();
-
         $event = new WebhookEvent(
             provider: $name,
             type: $this->eventType($name, $request),
-            payload: $payload,
+            payload: $this->payload($request),
         );
 
         WebhookReceived::dispatch($event);
@@ -51,6 +48,29 @@ final class WebhookController
         }
 
         return new JsonResponse(['message' => 'ok']);
+    }
+
+    /**
+     * The delivery's JSON payload, whichever content type carried it.
+     *
+     * GitHub offers two: `application/json`, and `application/x-www-form-urlencoded` — the
+     * default when a hook is added in its UI — which sends the JSON as a `payload` field.
+     * The field is read from the raw body, the bytes the signature covers, never from the
+     * request's merged input, where an unsigned query string could supply it.
+     *
+     * @return array<string, mixed>
+     */
+    private function payload(Request $request): array
+    {
+        if ($request->getContentTypeFormat() !== 'form') {
+            return $request->json()->all();
+        }
+
+        parse_str($request->getContent(), $form);
+
+        $payload = is_string($form['payload'] ?? null) ? json_decode($form['payload'], true) : null;
+
+        return is_array($payload) ? $payload : [];
     }
 
     private function eventType(ProviderName $provider, Request $request): string
