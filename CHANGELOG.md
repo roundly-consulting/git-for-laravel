@@ -6,6 +6,8 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+## 1.1.2 - 2026-10-07
+
 ### Fixed
 
 - GitLab `WebhookEvent::repository()` no longer makes up an owner id of `"0"` on real hook
