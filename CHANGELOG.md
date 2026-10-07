@@ -19,6 +19,10 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 - The webhook route now reads a GitHub delivery sent with the `application/x-www-form-urlencoded`
   content type (GitHub's default for hooks added in its UI). Its events used to carry an empty
   payload; the `payload` field is now decoded from the signed body.
+- `webhooks()->register()` with no `$url` (the package's own route) now throws
+  `InvalidArgumentException` naming `git.providers.<provider>.webhook_secret` when no secret is
+  configured, or when the `$secret` passed differs from it, and sends nothing. Such a hook used to
+  be created, and the route answered every delivery with 403. An explicit `$url` is unchanged.
 
 ## 1.0.0 - 2026-10-03
 

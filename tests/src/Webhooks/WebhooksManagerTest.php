@@ -82,6 +82,43 @@ it('probes and deletes hooks by url', function () {
         ->and($manager->deleteByUrl($url))->toBeTrue();
 });
 
+it('refuses to register the package route with no secret the route can verify', function () {
+    config()->set('git.providers.github.webhook_secret', null);
+    Http::fake();
+
+    expect(fn () => githubAuthed()->repo('acme/api')->webhooks()->register())
+        ->toThrow(InvalidArgumentException::class, 'git.providers.github.webhook_secret');
+
+    Http::assertNothingSent();
+});
+
+it('refuses a secret the package route would not verify against', function (?string $configured) {
+    // The route checks deliveries against the CONFIGURED secret only, so a hook signed with
+    // any other one is answered 403 for every delivery.
+    config()->set('git.providers.github.webhook_secret', $configured);
+    Http::fake();
+
+    expect(fn () => githubAuthed()->repo('acme/api')->webhooks()->register(secret: 'another-secret'))
+        ->toThrow(InvalidArgumentException::class, 'git.providers.github.webhook_secret');
+
+    Http::assertNothingSent();
+})->with(['configured differently' => 'top-secret', 'not configured' => null]);
+
+it('still registers a host-owned url with no secret', function () {
+    config()->set('git.providers.github.webhook_secret', null);
+
+    Http::fake([
+        '*/repos/acme/api/hooks*' => Http::sequence()
+            ->push([])
+            ->push(['id' => 9, 'config' => ['url' => 'https://app.test/own'], 'events' => ['push'], 'active' => true], 201),
+    ]);
+
+    expect(githubAuthed()->repo('acme/api')->webhooks()->register(url: 'https://app.test/own')->id)->toBe('9');
+
+    Http::assertSent(fn (Request $request): bool => $request->method() === 'POST'
+        && ! array_key_exists('secret', $request->data()['config']));
+});
+
 it('throws when deriving a url with webhooks disabled', function () {
     config()->set('git.webhooks.enabled', false);
 

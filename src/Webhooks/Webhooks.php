@@ -31,14 +31,23 @@ final class Webhooks
      * provider's configured webhook secret so the hook is immediately verifiable.
      *
      * @param  list<string>  $events
+     *
+     * @throws InvalidArgumentException when the URL is the package route and the hook would
+     *                                  carry no secret, or another secret than the route checks
      */
     public function register(
         ?string $url = null,
         array $events = ['push'],
         #[SensitiveParameter] ?string $secret = null,
     ): Webhook {
+        $derived = $url === null;
         $url ??= $this->derivedUrl();
-        $secret ??= $this->defaultSecret();
+        $configured = $this->defaultSecret();
+        $secret ??= $configured;
+
+        if ($derived) {
+            $this->guardVerifiable($secret, $configured);
+        }
 
         foreach ($this->all() as $existing) {
             if ($existing->url === $url) {
@@ -104,6 +113,28 @@ final class Webhooks
         }
 
         return route('git.webhooks', ['provider' => $this->provider->providerName()->key()]);
+    }
+
+    /**
+     * The package's own route verifies every delivery against the CONFIGURED secret and
+     * answers 403 when there is none — so a hook pointed at it with no secret, or with a
+     * different one, could never deliver. Refused before anything is sent.
+     */
+    private function guardVerifiable(#[SensitiveParameter] ?string $secret, #[SensitiveParameter] ?string $configured): void
+    {
+        $key = "git.providers.{$this->provider->providerName()->key()}.webhook_secret";
+
+        if ($configured === null) {
+            throw new InvalidArgumentException(
+                "Cannot register the package's webhook route without a secret it can verify: set [{$key}], or pass an explicit \$url for a route you own."
+            );
+        }
+
+        if ($secret !== $configured) {
+            throw new InvalidArgumentException(
+                "The package's webhook route verifies deliveries against [{$key}]: pass that secret (or none), or an explicit \$url for a route you own."
+            );
+        }
     }
 
     private function defaultSecret(): ?string
