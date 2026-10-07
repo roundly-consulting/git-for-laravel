@@ -9,6 +9,7 @@ use Illuminate\Support\LazyCollection;
 use RoundlyConsulting\Git\Batch\Batch;
 use RoundlyConsulting\Git\Batch\BatchResult;
 use RoundlyConsulting\Git\Concerns\ProvidesHandles;
+use RoundlyConsulting\Git\Contracts\ListsWebhookEvents;
 use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
 use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Comment;
@@ -81,7 +82,7 @@ use RuntimeException;
  * (comment targets, commit filters, repository and webhook input): the fake runs the
  * driver's own `validate*()` checks, not a copy of them.
  */
-final class ProviderFake implements Provider
+final class ProviderFake implements ListsWebhookEvents, Provider
 {
     use ProvidesHandles;
 
@@ -1064,6 +1065,18 @@ final class ProviderFake implements Provider
             events: $data->events,
             active: $data->active,
         );
+    }
+
+    /**
+     * @internal the real driver's reading of these events, so `register()` matches
+     *           seeded hooks exactly as it matches listed ones.
+     *
+     * @param  list<string>  $events
+     * @return list<string>
+     */
+    public function listedWebhookEvents(array $events): array
+    {
+        return $this->driverChecks()?->listedWebhookEvents($events) ?? array_values(array_unique($events));
     }
 
     public function deleteWebhook(string $path, string $id): void

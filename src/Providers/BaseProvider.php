@@ -20,6 +20,7 @@ use RoundlyConsulting\Git\Batch\Batch;
 use RoundlyConsulting\Git\Batch\BatchError;
 use RoundlyConsulting\Git\Concerns\InteractsWithRateLimits;
 use RoundlyConsulting\Git\Concerns\ProvidesHandles;
+use RoundlyConsulting\Git\Contracts\ListsWebhookEvents;
 use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
@@ -71,7 +72,7 @@ use RoundlyConsulting\PackageToolkit\Support\Config;
 use SensitiveParameter;
 use Throwable;
 
-abstract class BaseProvider implements Provider
+abstract class BaseProvider implements ListsWebhookEvents, Provider
 {
     use InteractsWithRateLimits;
     use ProvidesHandles;
@@ -544,6 +545,17 @@ abstract class BaseProvider implements Provider
 
     /** @internal the drivers' and the fake's shared input checks. */
     public function validateNewWebhook(NewWebhook $data): void {}
+
+    /**
+     * @internal how `listWebhooks()` reports these events — the names as given here.
+     *
+     * @param  list<string>  $events
+     * @return list<string>
+     */
+    public function listedWebhookEvents(array $events): array
+    {
+        return array_values(array_unique($events));
+    }
 
     /**
      * The secret to put in a clone URL for a credential.

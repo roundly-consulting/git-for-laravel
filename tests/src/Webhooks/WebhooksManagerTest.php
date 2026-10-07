@@ -5,6 +5,8 @@ declare(strict_types=1);
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
+use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\Facades\Git;
 use RoundlyConsulting\Git\Providers\Github;
@@ -133,4 +135,74 @@ it('guards against an unauthenticated provider', function () {
 
     expect(fn () => Git::github()->repo('acme/api')->webhooks()->all())
         ->toThrow(InvalidCredentialsException::class);
+});
+
+it('refuses to treat a hook with other events as the one being registered', function () {
+    $url = 'https://app.test/hooks/github';
+
+    Http::fake(['*/repos/acme/api/hooks*' => Http::response([
+        ['type' => 'Repository', 'id' => 7, 'name' => 'web', 'active' => true, 'events' => ['push'],
+            'config' => ['content_type' => 'json', 'insecure_ssl' => '0', 'url' => $url]],
+    ])]);
+
+    expect(fn () => githubAuthed()->repo('acme/api')->webhooks()->register(url: $url, events: ['push', 'pull_request']))
+        ->toThrow(InvalidArgumentException::class, '[7]');
+
+    Http::assertNotSent(fn (Request $request): bool => $request->method() === 'POST');
+});
+
+it('stays idempotent for the same events in any order', function () {
+    $url = 'https://app.test/hooks/github';
+
+    Http::fake(['*/repos/acme/api/hooks*' => Http::response([
+        ['type' => 'Repository', 'id' => 7, 'name' => 'web', 'active' => true, 'events' => ['pull_request', 'push'],
+            'config' => ['content_type' => 'json', 'insecure_ssl' => '0', 'url' => $url]],
+    ])]);
+
+    expect(githubAuthed()->repo('acme/api')->webhooks()->register(url: $url, events: ['push', 'pull_request'])->id)->toBe('7');
+
+    Http::assertSentCount(1);
+});
+
+it('compares gitlab and bitbucket events in the form the forge lists them', function (string $provider, array $listed, array $events, bool $matches) {
+    $url = 'https://app.test/hooks/x';
+    $hook = $provider === 'gitlab'
+        ? array_fill_keys($listed, true) + ['id' => 3, 'url' => $url, 'alert_status' => 'executable', 'push_events' => false, 'merge_requests_events' => false, 'issues_events' => false]
+        : ['type' => 'webhook_subscription', 'uuid' => '{0b1e7a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b}', 'url' => $url, 'active' => true, 'events' => $listed];
+
+    Http::fake(['*/hooks*' => Http::response($provider === 'gitlab' ? [$hook] : ['values' => [$hook]])]);
+
+    $register = fn () => Git::provider($provider, Token::from('t'))->repo('acme/api')->webhooks()->register(url: $url, events: $events);
+
+    if ($matches) {
+        expect($register()->url)->toBe($url);
+    } else {
+        expect($register)->toThrow(InvalidArgumentException::class, $url);
+    }
+
+    Http::assertNotSent(fn (Request $request): bool => $request->method() === 'POST');
+})->with([
+    'gitlab native flag' => ['gitlab', ['merge_requests_events'], ['merge_requests_events'], true],
+    'gitlab canonical name' => ['gitlab', ['push_events', 'merge_requests_events'], ['pull_request', 'push'], true],
+    'gitlab missing event' => ['gitlab', ['push_events'], ['push', 'issues'], false],
+    'bitbucket full pull_request' => ['bitbucket', ['repo:push', 'pullrequest:created', 'pullrequest:updated', 'pullrequest:fulfilled', 'pullrequest:rejected'], ['pull_request', 'push'], true],
+    'bitbucket native push' => ['bitbucket', ['repo:push'], ['repo:push'], true],
+    'bitbucket created only' => ['bitbucket', ['pullrequest:created'], ['pull_request'], false],
+]);
+
+it('matches seeded hooks on the fake exactly as listed ones', function () {
+    fakeCredentials();
+
+    $fake = Git::fake();
+    $fake->fakeFor(ProviderName::Bitbucket)->seedWebhooks([
+        new Webhook(ProviderName::Bitbucket, '{0b1e7a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b}', 'https://app.test/a', ['pullrequest:created'], true),
+        new Webhook(ProviderName::Bitbucket, '{1b1e7a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b}', 'https://app.test/b', ['push'], true),
+    ]);
+
+    $webhooks = Git::bitbucket()->repo('acme/api')->webhooks();
+
+    expect(fn () => $webhooks->register(url: 'https://app.test/a', events: ['pull_request']))->toThrow(InvalidArgumentException::class)
+        ->and($webhooks->register(url: 'https://app.test/b', events: ['repo:push'])->id)->toBe('{1b1e7a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b}');
+
+    $fake->assertNotSent(ProviderName::Bitbucket, 'createWebhook');
 });

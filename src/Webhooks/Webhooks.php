@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Git\Webhooks;
 
 use InvalidArgumentException;
+use RoundlyConsulting\Git\Contracts\ListsWebhookEvents;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
@@ -32,8 +33,12 @@ final class Webhooks
      *
      * @param  list<string>  $events
      *
+     * An existing hook at the URL is returned when it has the same events (in any order);
+     * one with other events is refused rather than returned as if it delivered these.
+     *
      * @throws InvalidArgumentException when the URL is the package route and the hook would
-     *                                  carry no secret, or another secret than the route checks
+     *                                  carry no secret, or another secret than the route checks,
+     *                                  or when a hook at the URL has other events
      */
     public function register(
         ?string $url = null,
@@ -49,10 +54,21 @@ final class Webhooks
             $this->guardVerifiable($secret, $configured);
         }
 
+        $wanted = $this->listed($events);
+
         foreach ($this->all() as $existing) {
-            if ($existing->url === $url) {
+            if ($existing->url !== $url) {
+                continue;
+            }
+
+            if ($this->sameEvents($existing->events, $wanted)) {
                 return $existing;
             }
+
+            // Returning it would report a registration whose events never arrive.
+            throw new InvalidArgumentException(
+                "A webhook for [{$url}] already exists (id [{$existing->id}]) with the events [".implode(', ', $existing->events).'], not ['.implode(', ', $wanted).']: delete it first, or register the events it has.'
+            );
         }
 
         return $this->provider->createWebhook($this->path, new NewWebhook(
@@ -102,6 +118,33 @@ final class Webhooks
         }
 
         return false;
+    }
+
+    /**
+     * The events as the provider lists them, so the comparison below is like for like.
+     *
+     * @param  list<string>  $events
+     * @return list<string>
+     */
+    private function listed(array $events): array
+    {
+        return $this->provider instanceof ListsWebhookEvents
+            ? $this->provider->listedWebhookEvents($events)
+            : array_values(array_unique($events));
+    }
+
+    /**
+     * @param  list<string>  $existing
+     * @param  list<string>  $wanted
+     */
+    private function sameEvents(array $existing, array $wanted): bool
+    {
+        $existing = array_values(array_unique($existing));
+
+        sort($existing);
+        sort($wanted);
+
+        return $existing === $wanted;
     }
 
     private function derivedUrl(): string

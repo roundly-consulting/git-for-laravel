@@ -672,6 +672,23 @@ class Gitlab extends BaseProvider
     }
 
     /**
+     * @internal how `listWebhooks()` reports these events: a known flag by its canonical
+     *           name (`merge_requests_events` → `pull_request`), anything else as given.
+     *
+     * @param  list<string>  $events
+     * @return list<string>
+     */
+    public function listedWebhookEvents(array $events): array
+    {
+        $canonical = array_flip(self::WEBHOOK_EVENTS);
+
+        return array_values(array_unique(array_map(
+            fn (string $event): string => $canonical[$event] ?? $event,
+            $events,
+        )));
+    }
+
+    /**
      * The event flags for a hook, every known one set explicitly.
      *
      * @param  list<string>  $events

@@ -87,6 +87,11 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 - Bitbucket `listWebhooks()` reports a hook as `pull_request` only when it is subscribed to all
   four pull request events (created, updated, fulfilled, rejected). A partial subscription is
   now reported by its native names (`pullrequest:created`), instead of looking complete.
+- `webhooks()->register()` no longer returns an existing hook at the same URL that has other
+  events: it throws `InvalidArgumentException` naming the hook, so `register(events: ['push',
+  'pull_request'])` cannot silently keep a push-only hook. The same events in any order (and
+  their native spellings, like GitLab's `merge_requests_events`) still return the existing hook
+  without a request.
 
 ## 1.0.0 - 2026-10-03
 

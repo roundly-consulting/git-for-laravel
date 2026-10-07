@@ -462,6 +462,18 @@ class Bitbucket extends BaseProvider
     }
 
     /**
+     * @internal how `listWebhooks()` reports these events: subscribed natively, then read
+     *           back — `repo:push` is `push`, a lone `pullrequest:created` stays itself.
+     *
+     * @param  list<string>  $events
+     * @return list<string>
+     */
+    public function listedWebhookEvents(array $events): array
+    {
+        return $this->canonicalWebhookEvents($this->mapWebhookEvents($events));
+    }
+
+    /**
      * Bitbucket's event names read back as the canonical ones `createWebhook()` takes.
      *
      * A canonical name stands for ALL of its native events: a hook subscribed to only
