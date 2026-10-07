@@ -23,6 +23,9 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   fake now configures the slug.
 - A fake clone URL for a credential with an empty secret keeps its `:` (`https://user:@…`),
   as the real drivers build it, instead of dropping it.
+- `batch()->contents()` with a directory path reports a `BatchError` for that path only (no
+  status, the `notAFile` message) instead of failing the whole batch with an
+  `OutOfScopeException`; the other files are still returned.
 
 ## 1.1.0 - 2026-10-07
 

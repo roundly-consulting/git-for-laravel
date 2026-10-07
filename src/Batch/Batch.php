@@ -10,6 +10,7 @@ use InvalidArgumentException;
 use RoundlyConsulting\Git\Dto\FileContent;
 use RoundlyConsulting\Git\Dto\PullRequest;
 use RoundlyConsulting\Git\Dto\Repository;
+use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
 use RoundlyConsulting\Git\Providers\BaseProvider;
 
 /**
@@ -56,6 +57,8 @@ class Batch
     }
 
     /**
+     * A path that names a directory is an error for that path only (`errors()`, no status).
+     *
      * @param  list<string>  $filePaths
      * @return BatchResult<FileContent>
      */
@@ -134,7 +137,13 @@ class Batch
                 continue;
             }
 
-            $results[$key] = $map($outcome, (string) $key);
+            try {
+                $results[$key] = $map($outcome, (string) $key);
+            } catch (OutOfScopeException $exception) {
+                // An answer that is not the resource asked for — a directory where one file
+                // was asked for — fails its own key, never the whole batch.
+                $errors[$key] = new BatchError((string) $key, null, $exception->getMessage());
+            }
         }
 
         return new BatchResult($results, $errors);

@@ -146,6 +146,30 @@ it('reads a batched file over 1 MB through its blob', function () {
     expect(github()->batch()->contents('acme/api', ['dist/app.js'])->get('dist/app.js')->content)->toBe('bundle');
 });
 
+it('reports a directory path as an error for that item only', function () {
+    // A directory answers its LIST of entries, which is no file.
+    Http::fake([
+        '*/repos/acme/api/contents/README.md*' => Http::response([
+            'path' => 'README.md', 'content' => base64_encode('hi'), 'sha' => 'x', 'size' => 2,
+        ]),
+        '*/repos/acme/api/contents/docs*' => Http::response([
+            ['type' => 'file', 'name' => 'intro.md', 'path' => 'docs/intro.md', 'sha' => 'y', 'size' => 5],
+        ]),
+    ]);
+
+    $files = github()->batch()->contents('acme/api', ['README.md', 'docs']);
+
+    expect($files->get('README.md')?->content)->toBe('hi')
+        ->and($files->get('docs'))->toBeNull()
+        ->and($files->errors())->toHaveKeys(['docs'])
+        ->and($files->errors())->not->toHaveKey('README.md')
+        ->and($files->errors()['docs']->key)->toBe('docs')
+        ->and($files->errors()['docs']->status)->toBeNull()
+        ->and($files->errors()['docs']->message)->toBe('[docs] is a directory, not a file: contents() reads one file.');
+
+    expect(fn () => $files->throwOnError())->toThrow(BatchRequestException::class);
+});
+
 it('reports rate-limited keys without throwing the whole batch', function () {
     config()->set('git.providers.github.rateLimits', ['owner' => 'app', 'maxAttempts' => 1, 'timespan' => 'hour']);
 
