@@ -54,6 +54,25 @@ it('keeps sending a single state for open and merged pull requests', function (s
         && substr_count($request->url(), 'state=') === 1);
 })->with([['open', 'OPEN'], ['merged', 'MERGED'], ['all', 'ALL']]);
 
+it('caps a pull request page at the 50 bitbucket allows there', function (int $asked) {
+    // `/pullrequests` answers `400 Invalid pagelen` above 50, though every other list
+    // endpoint takes 100.
+    Http::fake(['*/pullrequests*' => Http::response(['values' => []])]);
+
+    expect(bitbucket()->pullRequests('o/r', perPage: $asked)->perPage)->toBe(50);
+
+    Http::assertSent(fn ($request): bool => str_contains($request->url(), 'pagelen=50'));
+    Http::assertNotSent(fn ($request): bool => str_contains($request->url(), "pagelen={$asked}"));
+})->with([51, 100, 500]);
+
+it('keeps a pull request page size of 50 or less as asked', function (int $asked) {
+    Http::fake(['*/pullrequests*' => Http::response(['values' => []])]);
+
+    expect(bitbucket()->pullRequests('o/r', perPage: $asked)->perPage)->toBe($asked);
+
+    Http::assertSent(fn ($request): bool => str_contains($request->url(), "pagelen={$asked}"));
+})->with([1, 30, 50]);
+
 it('gets a single pull request', function () {
     Http::fake(['*/pullrequests/5' => Http::response([
         'id' => 5, 'title' => 'PR', 'state' => 'OPEN',

@@ -435,6 +435,14 @@ describe('pagination', function (): void {
         expect(Git::github()->repositories(500)->perPage)->toBe(100);
     });
 
+    it('caps a bitbucket pull request page at 50, as the real driver does', function () {
+        Git::fake();
+
+        expect(Git::bitbucket()->pullRequests('o/r', perPage: 100)->perPage)->toBe(50)
+            ->and(Git::bitbucket()->repositories(100)->perPage)->toBe(100)
+            ->and(Git::github()->pullRequests('o/r', perPage: 100)->perPage)->toBe(100);
+    });
+
     it('walks the seeded commits page by page', function () {
         $commits = array_map(fn (int $i): Commit => new Commit(ProviderName::Github, "sha{$i}", "m{$i}", new Author('n', 'e', null), null, Carbon::now()), range(1, 5));
 

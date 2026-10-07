@@ -594,7 +594,7 @@ final class ProviderFake implements ListsWebhookEvents, Provider
     {
         $this->ensureSupported(Feature::ListPullRequests);
 
-        $size = $this->pageSize($perPage);
+        $size = $this->driverChecks()?->pullRequestPageSize($perPage) ?? $this->pageSize($perPage);
 
         $this->record('pullRequests', [$path, $state, $perPage]);
 

@@ -6,6 +6,12 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Fixed
+
+- Bitbucket `pullRequests()` caps `$perPage` at 50, the most Bitbucket's pull request endpoint
+  takes: 51–100 used to answer `400 Invalid pagelen`. Bitbucket's other lists keep their own
+  limits, and `Git::fake()` pages a Bitbucket pull request list the same way.
+
 ## 1.1.0 - 2026-10-07
 
 ### Changed

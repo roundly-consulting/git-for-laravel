@@ -34,6 +34,9 @@ class Bitbucket extends BaseProvider
     /** Bitbucket's default `pagelen`, which every paginated endpoint accepts. */
     private const WEBHOOK_PAGE_SIZE = 10;
 
+    /** The most `/pullrequests` takes: a larger `pagelen` answers `400 Invalid pagelen`. */
+    private const PULL_REQUEST_PAGE_SIZE = 50;
+
     /** @var array<string, list<string>> canonical event => Bitbucket's events for it */
     private const WEBHOOK_EVENTS = [
         'push' => ['repo:push'],
@@ -153,10 +156,20 @@ class Bitbucket extends BaseProvider
             url: $this->repositoryUrl($path).'/pullrequests',
             query: ['state' => $this->mapState($state)],
             page: 1,
-            perPage: $perPage,
+            perPage: $this->pullRequestPageSize($perPage),
             map: fn (array $pr): PullRequest => $this->mapper()->pullRequest($pr),
             itemsKey: 'values',
         );
+    }
+
+    /**
+     * Capped at {@see PULL_REQUEST_PAGE_SIZE}, below the 100 the other endpoints take.
+     *
+     * @internal the drivers' and the fake's shared page-size rule.
+     */
+    public function pullRequestPageSize(int $perPage): int
+    {
+        return min(parent::pullRequestPageSize($perPage), self::PULL_REQUEST_PAGE_SIZE);
     }
 
     public function pullRequest(string $path, int $number): PullRequest

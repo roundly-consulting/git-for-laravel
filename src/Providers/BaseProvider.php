@@ -1334,6 +1334,20 @@ abstract class BaseProvider implements ListsWebhookEvents, Provider
     }
 
     /**
+     * {@see pageSize()} for a pull request list — a forge whose pull request endpoint
+     * allows less than the others lowers it. Public so `Testing\ProviderFake` pages a
+     * pull request list exactly as the driver does.
+     *
+     * @internal the drivers' and the fake's shared page-size rule.
+     *
+     * @throws InvalidArgumentException when below 1
+     */
+    public function pullRequestPageSize(int $perPage): int
+    {
+        return $this->pageSize($perPage);
+    }
+
+    /**
      * Whether another page follows: the `Link: rel="next"` header when the forge sends
      * one (GitHub), a full page otherwise.
      */
