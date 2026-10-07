@@ -1028,12 +1028,11 @@ final class ProviderFake implements ListsWebhookEvents, Provider
 
         // The real driver's username rule (`token` / `x-access-token` on GitHub, `oauth2`
         // on GitLab, the caller's on Bitbucket), encoded exactly as the real drivers encode
-        // it, so a host test sees the URL production would hand to `git`.
+        // it, so a host test sees the URL production would hand to `git`. An empty secret
+        // keeps its `:` (`user:@host`), as on the real drivers.
         $user = rawurlencode($this->driverChecks()?->cloneUsername($username, $credentials) ?? $username);
 
-        return $secret === ''
-            ? "https://{$user}@fake/{$path}.git"
-            : "https://{$user}:".rawurlencode($secret)."@fake/{$path}.git";
+        return "https://{$user}:".rawurlencode($secret)."@fake/{$path}.git";
     }
 
     /** @return array<string, bool> */

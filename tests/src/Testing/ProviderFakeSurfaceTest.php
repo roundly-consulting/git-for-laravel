@@ -386,10 +386,9 @@ it('carries a refreshable credential into the fake clone url', function (): void
 
     expect($provider->cloneUrlForRepository('o/r', 'jane', $oauth))
         ->toBe('https://token:fake-refreshed@fake/o/r.git')
-        // An empty static secret drops the password rather than emitting `user:@host`,
-        // which some git clients read as a prompt.
+        // An empty static secret keeps its `:`, as the real drivers emit `user:@host`.
         ->and($provider->cloneUrlForRepository('o/r', 'jane', Token::from('')))
-        ->toBe('https://token@fake/o/r.git');
+        ->toBe('https://token:@fake/o/r.git');
 });
 
 it('answers an unseeded pull request with the number that was asked for', function (): void {

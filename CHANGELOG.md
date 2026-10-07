@@ -21,6 +21,8 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   `git.providers.github.app.slug` when no app slug is configured, as the real driver does,
   instead of falling back to a `fake-app` slug. A host test that builds an install URL on the
   fake now configures the slug.
+- A fake clone URL for a credential with an empty secret keeps its `:` (`https://user:@…`),
+  as the real drivers build it, instead of dropping it.
 
 ## 1.1.0 - 2026-10-07
 

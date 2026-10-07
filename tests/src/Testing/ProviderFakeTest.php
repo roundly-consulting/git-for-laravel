@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
@@ -256,4 +257,17 @@ it('puts the username in a fake clone url that the real driver would', function 
     'gitlab token' => [ProviderName::Gitlab, fn () => Token::from('t'), 'https://oauth2:t@fake/o/r.git'],
     'gitlab oauth' => [ProviderName::Gitlab, fn () => OauthToken::for('a', 'r', 'c', 's', 'https://token.test'), 'https://oauth2:fake-refreshed@fake/o/r.git'],
     'bitbucket token' => [ProviderName::Bitbucket, fn () => Token::from('t'), 'https://alice:t@fake/o/r.git'],
+]);
+
+it('keeps the empty password a real driver puts in a clone url', function (ProviderName $name, string $user) {
+    // The real drivers always emit `user:secret@`, so an empty secret is `user:@host`.
+    $real = Git::provider($name)->cloneUrlForRepository('o/r', 'alice', Token::from(''));
+    $fake = Git::fake()->fakeFor($name)->cloneUrlForRepository('o/r', 'alice', Token::from(''));
+
+    expect($fake)->toBe("https://{$user}:@fake/o/r.git")
+        ->and(Str::between($fake, 'https://', '@'))->toBe(Str::between($real, 'https://', '@'));
+})->with([
+    'github' => [ProviderName::Github, 'token'],
+    'gitlab' => [ProviderName::Gitlab, 'oauth2'],
+    'bitbucket' => [ProviderName::Bitbucket, 'alice'],
 ]);
