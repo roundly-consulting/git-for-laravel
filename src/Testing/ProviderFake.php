@@ -1014,17 +1014,16 @@ final class ProviderFake implements ListsWebhookEvents, Provider
 
         $path = PathGuard::encode(PathGuard::repository($path));
 
-        if ($credentials instanceof GithubAppToken) {
-            return "https://x-access-token:ghs_fake@fake/{$path}.git";
-        }
+        $secret = match (true) {
+            $credentials instanceof GithubAppToken => 'ghs_fake',
+            $credentials instanceof RefreshableCredentials => 'fake-refreshed',
+            default => (string) $credentials->credentials?->getValue(),
+        };
 
-        $secret = $credentials instanceof RefreshableCredentials
-            ? 'fake-refreshed'
-            : (string) $credentials->credentials?->getValue();
-
-        // Encoded exactly as the real drivers encode it, so a host test sees the URL
-        // production would hand to `git`.
-        $user = rawurlencode($username);
+        // The real driver's username rule (`token` / `x-access-token` on GitHub, `oauth2`
+        // on GitLab, the caller's on Bitbucket), encoded exactly as the real drivers encode
+        // it, so a host test sees the URL production would hand to `git`.
+        $user = rawurlencode($this->driverChecks()?->cloneUsername($username, $credentials) ?? $username);
 
         return $secret === ''
             ? "https://{$user}@fake/{$path}.git"

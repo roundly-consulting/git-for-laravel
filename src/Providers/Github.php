@@ -1073,10 +1073,21 @@ class Github extends BaseProvider
     {
         return $this->buildCloneUrl(
             baseUrl: $this->cloneBaseUrl(),
-            user: $credentials instanceof GithubAppToken ? 'x-access-token' : 'token',
+            user: $this->cloneUsername($username, $credentials),
             secret: $this->cloneSecretFor($credentials),
             path: $path,
         );
+    }
+
+    /**
+     * `x-access-token` for an installation token, `token` for everything else — never the
+     * caller's username.
+     *
+     * @internal the drivers' and the fake's shared clone-URL rule.
+     */
+    public function cloneUsername(string $username, Credentials $credentials): string
+    {
+        return $credentials instanceof GithubAppToken ? 'x-access-token' : 'token';
     }
 
     protected function cloneBaseUrl(): string

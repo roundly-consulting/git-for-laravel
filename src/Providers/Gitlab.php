@@ -746,13 +746,23 @@ class Gitlab extends BaseProvider
     {
         return $this->buildCloneUrl(
             baseUrl: $this->cloneBaseUrl(),
-            user: 'oauth2',
+            user: $this->cloneUsername($username, $credentials),
             // An OauthToken is refreshable and carries NO static secret, so reading
             // `credentials` produced `https://oauth2:@gitlab.com/...` — silently
             // unauthenticated. Same class of bug as the GitHub App path.
             secret: $this->cloneSecretFor($credentials),
             path: $path,
         );
+    }
+
+    /**
+     * `oauth2`, GitLab's username for a token of any kind.
+     *
+     * @internal the drivers' and the fake's shared clone-URL rule.
+     */
+    public function cloneUsername(string $username, Credentials $credentials): string
+    {
+        return 'oauth2';
     }
 
     /** GitLab's API lives under `/api/v4` on the web host, so the configured URL IS the web host. */

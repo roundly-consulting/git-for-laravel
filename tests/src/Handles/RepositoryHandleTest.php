@@ -111,7 +111,7 @@ it('fills the path into every repository write', function (): void {
         ->and($repo->createRelease(new NewRelease('v1.0.0')))->toBeInstanceOf(Release::class)
         ->and($repo->createFile(new NewFile('docs/a.md', 'a', 'add a', 'main')))->toBeInstanceOf(Commit::class)
         ->and($repo->updateFile(new UpdatedFile('docs/a.md', 'b', 'edit a', 'main', 'sha')))->toBeInstanceOf(Commit::class)
-        ->and($repo->cloneUrl('jane', Token::from('secret')))->toBe('https://jane:secret@fake/acme/app.git');
+        ->and($repo->cloneUrl('jane', Token::from('secret')))->toBe('https://token:secret@fake/acme/app.git');
 
     foreach (['createBranch', 'createPullRequest', 'comment', 'createTag', 'createRelease', 'createFile', 'updateFile', 'cloneUrlForRepository'] as $method) {
         $fake->assertSent(ProviderName::Github, $method, fn (string $path): bool => $path === 'acme/app');

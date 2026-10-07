@@ -96,6 +96,9 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   `InvalidArgumentException`, a size above 100 is capped at 100, and the seeded items are sliced
   by page with `hasMore` set — so `commits()->perPage(2)->get(3)` answers the fifth seeded
   commit instead of the whole set again.
+- `Git::fake()` clone URLs now carry the username the real driver uses: `token` (or
+  `x-access-token` for an installation token) on GitHub, `oauth2` on GitLab, the caller's on
+  Bitbucket. The fake used the caller's username on every forge.
 
 ## 1.0.0 - 2026-10-03
 

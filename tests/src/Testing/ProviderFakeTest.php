@@ -51,7 +51,7 @@ it('returns seeded branches, commit and clone url', function () {
         ->and($provider->commit('o/r', 'sha')->sha)->toBe('sha')
         // The fake now carries the CREDENTIAL too: a double that always returned a
         // credential-less URL could not fail the way the real providers did.
-        ->and($provider->cloneUrlForRepository('o/r', 'jane', Token::from('x')))->toBe('https://jane:x@fake/o/r.git')
+        ->and($provider->cloneUrlForRepository('o/r', 'jane', Token::from('x')))->toBe('https://token:x@fake/o/r.git')
         ->and($provider->user())->toBeInstanceOf(Owner::class);
 });
 
@@ -245,3 +245,15 @@ it('lets a seeded repository win over the provisioning input', function () {
 
     expect($repo)->toBe($seeded);
 });
+
+it('puts the username in a fake clone url that the real driver would', function (ProviderName $name, Closure $credential, string $url) {
+    $fake = Git::fake();
+
+    expect($fake->fakeFor($name)->cloneUrlForRepository('o/r', 'alice', $credential()))->toBe($url);
+})->with([
+    'github token' => [ProviderName::Github, fn () => Token::from('t'), 'https://token:t@fake/o/r.git'],
+    'github installation token' => [ProviderName::Github, fn () => appCredentials(), 'https://x-access-token:ghs_fake@fake/o/r.git'],
+    'gitlab token' => [ProviderName::Gitlab, fn () => Token::from('t'), 'https://oauth2:t@fake/o/r.git'],
+    'gitlab oauth' => [ProviderName::Gitlab, fn () => OauthToken::for('a', 'r', 'c', 's', 'https://token.test'), 'https://oauth2:fake-refreshed@fake/o/r.git'],
+    'bitbucket token' => [ProviderName::Bitbucket, fn () => Token::from('t'), 'https://alice:t@fake/o/r.git'],
+]);

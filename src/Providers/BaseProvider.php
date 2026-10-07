@@ -592,6 +592,17 @@ abstract class BaseProvider implements ListsWebhookEvents, Provider
     }
 
     /**
+     * The username a clone URL carries for a credential — the caller's own by default.
+     * Public so `Testing\ProviderFake` builds the same userinfo the driver does.
+     *
+     * @internal the drivers' and the fake's shared clone-URL rule.
+     */
+    public function cloneUsername(string $username, Credentials $credentials): string
+    {
+        return $username;
+    }
+
+    /**
      * `scheme://user:secret@host/path.git`, with the userinfo percent-encoded.
      *
      * A username like `me@acme.io` or a password carrying `@`, `/` or `:` would otherwise
