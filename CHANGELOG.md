@@ -6,6 +6,16 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Fixed
+
+- GitLab `WebhookEvent::repository()` no longer makes up an owner id of `"0"` on real hook
+  payloads, which carry no `namespace_id`: `owner->id` is `''` unless the hook has one. Its
+  `lastActivityAt` is now the hook's own event time (the newest commit of a push,
+  `object_attributes.updated_at`, a pipeline's or job's latest time, a deployment's
+  `status_changed_at`, a created release's `created_at`) instead of the time of mapping, which
+  stays only for a hook that carries no time. `createdAt` is still the time of mapping, as hooks
+  carry none; fetch the repository through the API for the full record.
+
 ## 1.1.1 - 2026-10-07
 
 ### Fixed

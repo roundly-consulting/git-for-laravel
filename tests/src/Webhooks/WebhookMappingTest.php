@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Carbon;
 use RoundlyConsulting\Git\Dto\WebhookEvent;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Enums\ResourceState;
@@ -66,6 +67,78 @@ it('maps the repository of a real gitlab hook, whose project namespace is a stri
         ->and($mr->repository()?->owner->name)->toBe('gitlabhq')
         ->and($mr->repository()?->owner->raw)->toMatchArray(['name' => 'GitlabHQ']);
 });
+
+it('leaves the owner id of a real gitlab hook empty, as the hook carries no namespace id', function (string $fixture, string $owner) {
+    // A real hook's project has no `namespace_id`; the owner id used to be a made-up "0".
+    $repository = (new WebhookEvent(ProviderName::Gitlab, 'Hook', webhookFixture('gitlab', $fixture)))->repository();
+
+    expect($repository?->owner->id)->toBe('')
+        ->and($repository?->owner->name)->toBe($owner);
+})->with([
+    'merge request hook' => ['merge_request_opened', 'gitlabhq'],
+    'push hook' => ['push_branch', 'mike'],
+    'tag push hook' => ['tag_push', 'jsmith'],
+]);
+
+it('keeps the namespace id a gitlab hook does carry as the owner id', function () {
+    $payload = webhookFixture('gitlab', 'merge_request_opened');
+    $payload['project']['namespace_id'] = 42;
+
+    expect((new WebhookEvent(ProviderName::Gitlab, 'Merge Request Hook', $payload))->repository()?->owner->id)->toBe('42');
+});
+
+$gitlabHook = fn (string $kind, array $fields): array => [
+    'object_kind' => $kind,
+    'project' => webhookFixture('gitlab', 'merge_request_opened')['project'],
+    ...$fields,
+];
+
+it('dates the last activity of a gitlab hook repository at the hook\'s own event time', function (array $payload, string $expected) {
+    Carbon::setTestNow('2026-10-07 12:00:00');
+
+    $repository = (new WebhookEvent(ProviderName::Gitlab, 'Hook', $payload))->repository();
+
+    expect($repository?->lastActivityAt->toIso8601ZuluString())->toBe(Carbon::parse($expected)->toIso8601ZuluString())
+        ->and($repository?->createdAt->toIso8601ZuluString())->toBe('2026-10-07T12:00:00Z');
+})->with([
+    'merge request (updated_at)' => [fn () => webhookFixture('gitlab', 'merge_request_opened'), '2013-12-03T17:23:34Z'],
+    'edited merge request (updated_at, not created_at)' => [function () {
+        $payload = webhookFixture('gitlab', 'merge_request_opened');
+        $payload['object_attributes']['updated_at'] = '2013-12-04T09:00:00Z';
+
+        return $payload;
+    }, '2013-12-04T09:00:00Z'],
+    'push (the newest commit)' => [fn () => webhookFixture('gitlab', 'push_branch'), '2012-01-03T23:36:29+02:00'],
+    'push listing the newest commit first' => [function () {
+        $payload = webhookFixture('gitlab', 'push_branch');
+        $payload['commits'] = array_reverse($payload['commits']);
+
+        return $payload;
+    }, '2012-01-03T23:36:29+02:00'],
+    'issue' => [fn () => $gitlabHook('issue', ['object_attributes' => ['created_at' => '2013-12-03T17:15:43.000Z', 'updated_at' => '2013-12-03T17:16:00.000Z']]), '2013-12-03T17:16:00.000Z'],
+    'comment' => [fn () => $gitlabHook('note', ['object_attributes' => ['created_at' => '2015-05-17T18:08:09.000Z', 'updated_at' => '2015-05-17T18:08:09.000Z']]), '2015-05-17T18:08:09.000Z'],
+    'finished pipeline' => [fn () => $gitlabHook('pipeline', ['object_attributes' => ['created_at' => '2016-08-12T15:23:28.000Z', 'finished_at' => '2016-08-12T15:26:29.000Z']]), '2016-08-12T15:26:29.000Z'],
+    'pending pipeline' => [fn () => $gitlabHook('pipeline', ['object_attributes' => ['created_at' => '2016-08-12T15:23:28.000Z', 'finished_at' => null]]), '2016-08-12T15:23:28.000Z'],
+    'created job' => [fn () => $gitlabHook('build', ['build_created_at' => '2021-02-23T02:41:37.886Z', 'build_started_at' => null, 'build_finished_at' => null]), '2021-02-23T02:41:37.886Z'],
+    'finished job' => [fn () => $gitlabHook('build', ['build_created_at' => '2021-02-23T02:41:37.886Z', 'build_started_at' => '2021-02-23T02:42:00.000Z', 'build_finished_at' => '2021-02-23T02:45:10.000Z']), '2021-02-23T02:45:10.000Z'],
+    'deployment' => [fn () => $gitlabHook('deployment', ['status_changed_at' => '2021-04-28T21:50:00.000+02:00']), '2021-04-28T21:50:00.000+02:00'],
+    'created release' => [fn () => $gitlabHook('release', ['action' => 'create', 'created_at' => '2020-11-02T12:55:12.000Z', 'released_at' => '2020-11-02T12:55:12.000Z']), '2020-11-02T12:55:12.000Z'],
+]);
+
+it('dates a gitlab hook repository at the time of mapping when the hook carries no event time', function (array $payload) {
+    // Hooks carry no project `created_at`, and these carry no time of their own either.
+    Carbon::setTestNow('2026-10-07 12:00:00');
+
+    $repository = (new WebhookEvent(ProviderName::Gitlab, 'Hook', $payload))->repository();
+
+    expect($repository?->lastActivityAt->toIso8601ZuluString())->toBe('2026-10-07T12:00:00Z')
+        ->and($repository?->createdAt->toIso8601ZuluString())->toBe('2026-10-07T12:00:00Z');
+})->with([
+    'tag push (no commits)' => [fn () => webhookFixture('gitlab', 'tag_push')],
+    'updated release (created_at is not the event)' => [fn () => $gitlabHook('release', ['action' => 'update', 'created_at' => '2020-11-02T12:55:12.000Z'])],
+    'feature flag' => [fn () => $gitlabHook('feature_flag', ['object_attributes' => ['id' => 6, 'active' => true]])],
+    'unreadable time' => [fn () => $gitlabHook('merge_request', ['object_attributes' => ['updated_at' => 'not a date']])],
+]);
 
 it('names no author when someone other than the author triggered the hook', function () {
     $payload = webhookFixture('gitlab', 'merge_request_opened');
