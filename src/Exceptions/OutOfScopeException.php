@@ -11,9 +11,10 @@ use RoundlyConsulting\Git\Enums\ProviderName;
  * An argument that would point a scoped handle at something outside its scope.
  *
  * Every repository path, file path and identifier a handle takes is interpolated into a
- * forge URL, so a `..` segment, an empty segment or a stray `?`/`#` does not fail — it
- * addresses a DIFFERENT resource than the one the handle was scoped to. The handles
- * refuse those shapes instead, and refuse a repository that belongs to another provider.
+ * forge URL, so a `..` segment, an empty segment or a stray `?`/`#` in a repository path
+ * does not fail — it addresses a DIFFERENT resource than the one the handle was scoped to.
+ * The handles refuse those shapes instead, and refuse a repository that belongs to another
+ * provider. (A file name may carry `?` and `#`, a ref `#`: they are percent-encoded.)
  */
 final class OutOfScopeException extends InvalidArgumentException
 {
@@ -27,7 +28,7 @@ final class OutOfScopeException extends InvalidArgumentException
     public static function filePath(string $path): self
     {
         return new self(
-            "[{$path}] is not a file path inside the repository: it must be non-empty, with no empty, '.' or '..' segment and no '?', '#' or '\\'."
+            "[{$path}] is not a file path inside the repository: it must be non-empty, with no empty, '.' or '..' segment and no '\\' or NUL."
         );
     }
 

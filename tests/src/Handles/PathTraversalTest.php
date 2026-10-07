@@ -22,7 +22,11 @@ dataset('encoded traversals', [
     'encoded slash' => 'docs%2F..%2F..%2F..%2Fvictim',
     'encoded backslash' => 'docs%5C..%5Cvictim',
     'encoded null byte' => 'docs/a%00.md',
-    'encoded query' => 'docs/a%3Fref=evil',
+    // `?` and `#` are legal in a file name, but a dot segment a stack could cut off at
+    // one of them (`..#x` read as `..` + a fragment) is still a traversal.
+    'dot segment before an encoded query' => '..%3F/victim',
+    'dot segment before an encoded fragment' => 'docs/..%23/../victim',
+    'dot segment before a literal fragment' => '..#/victim',
 ]);
 
 it('refuses a percent-encoded dot segment in a file read', function (string $path): void {
@@ -99,4 +103,42 @@ it('keeps a ref with a slash addressable while encoding its segments', function 
     github()->repo('acme/app')->commit('release/1.0');
 
     Http::assertSent(fn (Request $request): bool => str_ends_with($request->url(), '/repos/acme/app/commits/release/1.0'));
+});
+
+it('addresses a file or ref with # or ? in it, percent-encoded on every forge', function (string $provider, Closure $call, string $sent): void {
+    Http::fake(['*' => Http::response([
+        // Enough of each forge's answer for the mappers; the URL is what is under test.
+        'path' => 'p', 'file_path' => 'p', 'content' => base64_encode('x'), 'sha' => 's', 'blob_id' => 'b',
+        'id' => 'c1', 'hash' => 'c1', 'message' => 'm', 'author_name' => 'n', 'author_email' => 'e',
+        'authored_date' => '2020-01-01T00:00:00Z', 'date' => '2020-01-01T00:00:00Z', 'author' => ['raw' => 'n <e>'],
+        'commit' => ['message' => 'm', 'author' => ['name' => 'n', 'email' => 'e', 'date' => '2020-01-01T00:00:00Z']],
+        'commits' => [], 'diffs' => [], 'files' => [],
+    ])]);
+
+    $call($provider()->repo('acme/app'));
+
+    Http::assertSent(fn (Request $request): bool => str_contains($request->url(), $sent));
+})->with([
+    'github file with #' => ['github', fn ($repo) => $repo->contents('docs/C#/intro.md'), '/repos/acme/app/contents/docs/C%23/intro.md'],
+    'github file with ?' => ['github', fn ($repo) => $repo->contents('what?.md'), '/repos/acme/app/contents/what%3F.md'],
+    'github ref with #' => ['github', fn ($repo) => $repo->compare('main', 'fix/#123'), '/repos/acme/app/compare/main...fix/%23123'],
+    'gitlab file with #' => ['gitlab', fn ($repo) => $repo->contents('docs/C#/intro.md'), '/repository/files/docs%2FC%23%2Fintro.md'],
+    'gitlab file with ?' => ['gitlab', fn ($repo) => $repo->contents('what?.md'), '/repository/files/what%3F.md'],
+    'gitlab ref with #' => ['gitlab', fn ($repo) => $repo->commit('fix/#123'), '/repository/commits/fix%2F%23123'],
+    'bitbucket ref with #' => ['bitbucket', fn ($repo) => $repo->commit('fix/#123'), '/repositories/acme/app/commit/fix/%23123'],
+]);
+
+it('still refuses # and ? where they cannot belong', function (): void {
+    Http::fake();
+
+    $repo = github()->repo('acme/app');
+
+    expect(fn () => github()->repo('acme/app#x'))->toThrow(OutOfScopeException::class)
+        ->and(fn () => github()->repo('acme/app?x=1'))->toThrow(OutOfScopeException::class)
+        ->and(fn () => $repo->compare('main', 'fix?x'))->toThrow(OutOfScopeException::class)
+        ->and(fn () => $repo->contents('docs\\intro.md'))->toThrow(OutOfScopeException::class)
+        ->and(fn () => $repo->contents("docs/a\0.md"))->toThrow(OutOfScopeException::class)
+        ->and(fn () => github()->installations()->forUser('jane#x'))->toThrow(OutOfScopeException::class);
+
+    Http::assertNothingSent();
 });

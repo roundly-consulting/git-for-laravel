@@ -162,7 +162,7 @@ it('refuses a file path that could step outside the repository', function (): vo
 
     expect(fn () => $repo->contents('../../other/secret'))->toThrow(OutOfScopeException::class)
         ->and(fn () => $repo->createFile(new NewFile('docs/../../x', 'a', 'm', 'main')))->toThrow(OutOfScopeException::class)
-        ->and(fn () => $repo->updateFile(new UpdatedFile('a?b', 'a', 'm', 'main', 's')))->toThrow(OutOfScopeException::class);
+        ->and(fn () => $repo->updateFile(new UpdatedFile('docs/..?/secret', 'a', 'm', 'main', 's')))->toThrow(OutOfScopeException::class);
 
     $fake->assertNothingSent();
 });

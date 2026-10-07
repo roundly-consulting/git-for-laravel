@@ -28,32 +28,44 @@ final class PathGuard
     private const BITBUCKET_UUID = '/^\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}$/i';
 
     /**
+     * Characters refused outright, per kind of value. Git allows `#` in a ref and `?` / `#`
+     * in a file name, and every URL builder percent-encodes what it interpolates, so those
+     * two reach the forge as `%23` / `%3F`. A repository path and an account segment never
+     * carry them; a ref never carries `?` (`git check-ref-format` forbids it).
+     */
+    private const REFUSED_IN_REPOSITORY = "?#\\\0";
+
+    private const REFUSED_IN_FILE = "\\\0";
+
+    private const REFUSED_IN_REF = "?\\\0";
+
+    /**
      * A repository path: one or more `/`-separated segments (`owner/name`, a GitLab
      * `group/sub/project`, or a bare GitLab project id), none of which can step out of it.
      */
     public static function repository(string $path): string
     {
-        if (! self::segmentsAreSafe($path, rejectWhitespace: true)) {
+        if (! self::segmentsAreSafe($path, rejectWhitespace: true, refused: self::REFUSED_IN_REPOSITORY)) {
             throw OutOfScopeException::repositoryPath($path);
         }
 
         return $path;
     }
 
-    /** A file path inside the repository — spaces allowed, traversal not. */
+    /** A file path inside the repository — spaces, `?` and `#` allowed, traversal not. */
     public static function file(string $path): string
     {
-        if (! self::segmentsAreSafe($path, rejectWhitespace: false)) {
+        if (! self::segmentsAreSafe($path, rejectWhitespace: false, refused: self::REFUSED_IN_FILE)) {
             throw OutOfScopeException::filePath($path);
         }
 
         return $path;
     }
 
-    /** A git ref — a sha, a branch or a tag; slashes allowed (`release/1.0`), traversal not. */
+    /** A git ref — a sha, a branch or a tag; slashes and `#` allowed (`fix/#123`), traversal not. */
     public static function ref(string $label, string $value): string
     {
-        if (! self::segmentsAreSafe($value, rejectWhitespace: true)) {
+        if (! self::segmentsAreSafe($value, rejectWhitespace: true, refused: self::REFUSED_IN_REF)) {
             throw OutOfScopeException::identifier($label, $value);
         }
 
@@ -63,7 +75,7 @@ final class PathGuard
     /** An account login or organization name: exactly one safe segment. */
     public static function segment(string $label, string $value): string
     {
-        if (! self::segmentsAreSafe($value, rejectWhitespace: true) || str_contains(self::decoded($value), '/')) {
+        if (! self::segmentsAreSafe($value, rejectWhitespace: true, refused: self::REFUSED_IN_REPOSITORY) || str_contains(self::decoded($value), '/')) {
             throw OutOfScopeException::identifier($label, $value);
         }
 
@@ -110,7 +122,7 @@ final class PathGuard
      * Whether a value — and every decoding of it the HTTP stack could perform — stays
      * inside its scope.
      */
-    private static function segmentsAreSafe(string $path, bool $rejectWhitespace): bool
+    private static function segmentsAreSafe(string $path, bool $rejectWhitespace, string $refused): bool
     {
         if ($path === '' || ($rejectWhitespace && preg_match('/\s/', $path) === 1)) {
             return false;
@@ -119,7 +131,7 @@ final class PathGuard
         $candidate = $path;
 
         for ($decodes = 0; $decodes <= self::MAX_DECODES; $decodes++) {
-            if (! self::isSafeLiteral($candidate)) {
+            if (! self::isSafeLiteral($candidate, $refused)) {
                 return false;
             }
 
@@ -152,14 +164,18 @@ final class PathGuard
         return $value;
     }
 
-    private static function isSafeLiteral(string $path): bool
+    private static function isSafeLiteral(string $path, string $refused): bool
     {
-        if ($path === '' || strpbrk($path, "?#\\\0") !== false) {
+        if ($path === '' || strpbrk($path, $refused) !== false) {
             return false;
         }
 
         foreach (explode('/', $path) as $segment) {
-            if ($segment === '' || $segment === '.' || $segment === '..') {
+            // A segment is also judged by what precedes a `?` or `#` in it: anything that
+            // ever read one as the start of a query or fragment would be left with `..`.
+            $beforeQuery = substr($segment, 0, strcspn($segment, '?#'));
+
+            if ($segment === '' || in_array($segment, ['.', '..'], true) || in_array($beforeQuery, ['.', '..'], true)) {
                 return false;
             }
         }

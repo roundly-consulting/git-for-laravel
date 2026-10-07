@@ -37,6 +37,11 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 - GitLab `createBranch()` now returns the new ref, `refs/heads/<name>`, as documented and as
   GitHub and the fake return it. It used to return the bare branch name.
+- File paths may now contain `#` and `?`, and refs `#` (`contents('docs/C#/intro.md')`,
+  `compare('main', 'fix/#123')`): every driver percent-encodes them (`%23`, `%3F`), so they
+  used to be refused with `OutOfScopeException` for no reason. Repository paths and account
+  names still refuse both, refs still refuse `?`, and `\` and NUL stay refused everywhere. A
+  segment that would read as `.` or `..` once cut at a `?` or `#` is refused as a traversal.
 
 ### Fixed
 
