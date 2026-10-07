@@ -6,6 +6,8 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+## 1.1.4 - 2026-10-07
+
 ### Fixed
 
 - GitLab `WebhookEvent::pullRequest()` maps the merge request a Note Hook on a merge request and a
