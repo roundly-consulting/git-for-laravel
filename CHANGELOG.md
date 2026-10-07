@@ -6,6 +6,13 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Fixed
+
+- GitLab `WebhookEvent::pullRequest()` returns `null` for every hook but a Merge Request Hook
+  (`object_kind: merge_request`), as GitHub and Bitbucket return `null` when there is no pull
+  request. It used to read any hook's `object_attributes` as a merge request: an Issue Hook gave
+  the issue back as a `PullRequest`, and a Pipeline or Note Hook threw `Undefined array key`.
+
 ## 1.1.2 - 2026-10-07
 
 ### Fixed

@@ -150,6 +150,28 @@ it('names no author when someone other than the author triggered the hook', func
         ->and($mr->pullRequest()?->url)->toBe('https://gitlab.example.com/gitlabhq/gitlab-test/-/merge_requests/1');
 });
 
+it('maps no pull request from a gitlab hook that is not a merge request hook', function (string $fixture, string $type) {
+    // These hooks carry `object_attributes` too — an issue, a pipeline, a comment — which used
+    // to be read as a merge request: the issue came back as a PullRequest, the others threw.
+    $event = new WebhookEvent(ProviderName::Gitlab, $type, webhookFixture('gitlab', $fixture));
+
+    expect($event->pullRequest())->toBeNull();
+})->with([
+    'issue hook' => ['issue', 'Issue Hook'],
+    'pipeline hook' => ['pipeline', 'Pipeline Hook'],
+    'comment on a merge request' => ['note_merge_request', 'Note Hook'],
+]);
+
+it('still maps the merge request of a gitlab merge request hook', function (string $fixture, int $number, string $title) {
+    $mr = new WebhookEvent(ProviderName::Gitlab, 'Merge Request Hook', webhookFixture('gitlab', $fixture));
+
+    expect($mr->pullRequest()?->number)->toBe($number)
+        ->and($mr->pullRequest()?->title)->toBe($title);
+})->with([
+    'real hook' => ['merge_request_opened', 1, 'Draft: MS-Viewport'],
+    'minimal hook' => ['merge_request', 4, 'Add feature'],
+]);
+
 it('maps a bitbucket push and pull request', function () {
     $push = new WebhookEvent(ProviderName::Bitbucket, 'repo:push', webhookFixture('bitbucket', 'push'));
     $pr = new WebhookEvent(ProviderName::Bitbucket, 'pullrequest:created', webhookFixture('bitbucket', 'pull_request'));

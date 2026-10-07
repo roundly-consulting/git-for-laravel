@@ -36,10 +36,17 @@ final class GitlabWebhookMapper implements WebhookPayloadMapper
         ));
     }
 
-    /** @param array<string, mixed> $payload */
+    /**
+     * The merge request of a Merge Request Hook; `null` for any other hook.
+     *
+     * Issue, comment, pipeline and other hooks carry `object_attributes` too — the issue, the
+     * note, the pipeline — so only the hook's own `object_kind` says it is a merge request.
+     *
+     * @param  array<string, mixed>  $payload
+     */
     public function pullRequest(array $payload): ?PullRequest
     {
-        if (! is_array($payload['object_attributes'] ?? null)) {
+        if (($payload['object_kind'] ?? null) !== 'merge_request' || ! is_array($payload['object_attributes'] ?? null)) {
             return null;
         }
 
