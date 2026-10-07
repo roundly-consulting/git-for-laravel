@@ -15,6 +15,8 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   `status_changed_at`, a created release's `created_at`) instead of the time of mapping, which
   stays only for a hook that carries no time. `createdAt` is still the time of mapping, as hooks
   carry none; fetch the repository through the API for the full record.
+- `Git::fake()`'s `installUrl()` URL-encodes the app slug, as the real GitHub driver does, so a
+  slug with a reserved character no longer gives a URL production never builds.
 
 ## 1.1.1 - 2026-10-07
 

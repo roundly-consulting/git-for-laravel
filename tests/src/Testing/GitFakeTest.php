@@ -173,6 +173,17 @@ describe('credential parity', function (): void {
         expect(Git::github()->installUrl('s1'))->toBe('https://fake/apps/my-app/installations/new?state=s1');
     })->with(['not set' => null, 'blank' => '  ']);
 
+    it('encodes the app slug in an install url, as the real driver does', function () {
+        config()->set('git.providers.github.app.slug', 'my app/v2');
+
+        $real = github()->installUrl('s1');
+
+        Git::fake();
+
+        expect($real)->toBe('https://github.com/apps/my%20app%2Fv2/installations/new?state=s1')
+            ->and(Git::github()->installUrl('s1'))->toBe('https://fake/apps/my%20app%2Fv2/installations/new?state=s1');
+    });
+
     it('drives the app flow once fake app keys are configured', function () {
         config()->set('git.providers.github.app.id', '123');
         config()->set('git.providers.github.app.private_key', 'fake-key');

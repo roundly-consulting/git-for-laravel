@@ -532,7 +532,8 @@ final class ProviderFake implements ListsWebhookEvents, Provider
 
         $this->record('installUrl', [$state]);
 
-        $url = "https://fake/apps/{$slug}/installations/new";
+        // Encoded like the real driver, so a test never asserts a URL production can't build.
+        $url = 'https://fake/apps/'.rawurlencode($slug).'/installations/new';
 
         return $state === null || $state === '' ? $url : $url.'?state='.urlencode($state);
     }
