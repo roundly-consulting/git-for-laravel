@@ -6,6 +6,8 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+## 1.1.1 - 2026-10-07
+
 ### Fixed
 
 - Bitbucket `pullRequests()` caps `$perPage` at 50, the most Bitbucket's pull request endpoint
