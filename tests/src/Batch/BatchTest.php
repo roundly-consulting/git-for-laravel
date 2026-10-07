@@ -179,3 +179,28 @@ it('accounts pooled requests through the rate limiter', function () {
 
     $limiter->assertAllowed(rateLimitKey('github'));
 });
+
+it('refuses a pull request reference that is not path#number, sending nothing', function (string $reference) {
+    Http::fake();
+
+    expect(fn () => github()->batch()->pullRequest(['a' => $reference]))
+        ->toThrow(InvalidArgumentException::class, "[{$reference}]");
+
+    Http::assertNothingSent();
+})->with([
+    'no number' => 'acme/app',
+    'not a number' => 'acme/app#x',
+    'number zero' => 'acme/app#0',
+    'no path' => '#12',
+    'trailing junk' => 'acme/app#12x',
+    'trailing newline' => "acme/app#12\n",
+]);
+
+it('still requests a well-formed pull request reference', function () {
+    Http::fake(['*/repos/acme/app/pulls/12' => Http::response([
+        'id' => 1, 'number' => 12, 'title' => 't', 'state' => 'open',
+        'head' => ['ref' => 'f'], 'base' => ['ref' => 'm'], 'created_at' => '2020-01-01T00:00:00Z',
+    ])]);
+
+    expect(github()->batch()->pullRequest(['a' => 'acme/app#12'])->get('a')->number)->toBe(12);
+});

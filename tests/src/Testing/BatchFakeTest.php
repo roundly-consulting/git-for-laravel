@@ -44,3 +44,12 @@ it('records contents and pull request batch calls', function () {
     $fake->assertBatched(ProviderName::Github, 'contents');
     $fake->assertBatched(ProviderName::Github, 'pullRequest');
 });
+
+it('refuses a malformed pull request reference on the fake batch, as the real one does', function () {
+    $fake = Git::fake();
+
+    expect(fn () => $fake->github()->batch()->pullRequest(['a' => 'acme/api']))
+        ->toThrow(InvalidArgumentException::class, '[acme/api]');
+
+    $fake->assertNotBatched(ProviderName::Github, 'pullRequest');
+});

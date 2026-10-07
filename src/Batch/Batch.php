@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Git\Batch;
 
 use Illuminate\Http\Client\Response;
+use Illuminate\Support\Str;
+use InvalidArgumentException;
 use RoundlyConsulting\Git\Dto\FileContent;
 use RoundlyConsulting\Git\Dto\PullRequest;
 use RoundlyConsulting\Git\Dto\Repository;
@@ -72,17 +74,43 @@ class Batch
     /**
      * @param  array<string, string>  $references  caller id => "path#number"
      * @return BatchResult<PullRequest>
+     *
+     * @throws InvalidArgumentException when a reference is not "path#number" (number ≥ 1)
      */
     public function pullRequest(array $references): BatchResult
     {
+        $this->guardPullRequestReferences($references);
+
         $specs = [];
 
         foreach ($references as $id => $reference) {
-            [$path, $number] = explode('#', $reference, 2);
-            $specs[$id] = ['url' => $this->provider->pullRequestUrl($path, (int) $number), 'query' => []];
+            $specs[$id] = [
+                'url' => $this->provider->pullRequestUrl(Str::beforeLast($reference, '#'), (int) Str::afterLast($reference, '#')),
+                'query' => [],
+            ];
         }
 
         return $this->resolve($specs, fn (Response $response): PullRequest => $this->provider->mapResource()->pullRequest($response->json()));
+    }
+
+    /**
+     * Every reference must be `path#number` with a number of 1 or more — refused before
+     * anything is sent, rather than failing on a missing `#` or requesting `/pulls/0`.
+     * Shared with the fake batch, so a host test refuses what production refuses.
+     *
+     * @param  array<string, string>  $references
+     *
+     * @throws InvalidArgumentException
+     */
+    protected function guardPullRequestReferences(array $references): void
+    {
+        foreach ($references as $id => $reference) {
+            if (preg_match('/^[^#]+#[1-9][0-9]*\z/', $reference) !== 1) {
+                throw new InvalidArgumentException(
+                    "The pull request reference [{$reference}] for [{$id}] is not \"path#number\" with a number of 1 or more."
+                );
+            }
+        }
     }
 
     /**

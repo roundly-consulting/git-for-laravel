@@ -64,6 +64,7 @@ final class BatchFake extends Batch
     public function pullRequest(array $references): BatchResult
     {
         $this->provider->ensureSupported(Feature::FindPullRequest);
+        $this->guardPullRequestReferences($references);
 
         return $this->dispatch('pullRequest', $references);
     }

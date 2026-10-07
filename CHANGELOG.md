@@ -81,6 +81,9 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 - Bitbucket `pullRequests($path, 'closed')` now includes superseded pull requests: it asks for
   `state=DECLINED&state=SUPERSEDED`, matching what `ResourceState` calls closed. It used to ask
   for declined ones only.
+- `batch()->pullRequest()` now throws `InvalidArgumentException` naming a reference that is not
+  `path#number` (number 1 or more) before sending anything. A reference with no `#` failed with
+  an `ErrorException`, and `acme/app#x` requested `/pulls/0`. `Git::fake()` refuses the same.
 
 ## 1.0.0 - 2026-10-03
 
