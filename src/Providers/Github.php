@@ -630,16 +630,21 @@ class Github extends BaseProvider
         return $this->mapper()->repository($created);
     }
 
+    /**
+     * Create a branch from `$data->fromRef` — a branch, a tag or a sha.
+     *
+     * The base is resolved through the commits endpoint, as {@see createTag()} does:
+     * `/git/refs/heads/{ref}` only knows branches (a tag or a sha is a 404) and answers a
+     * LIST for a prefix that is not an exact branch name.
+     */
     public function createBranch(string $path, NewBranch $data): string
     {
         $this->guardSupported(Feature::CreateBranch);
         $this->guardAuthenticated();
 
-        $base = $this->get($this->repos($path).'/git/refs/heads/'.$this->refSegments('base ref', $data->fromRef))->json();
-
         $response = $this->send('POST', $this->repos($path).'/git/refs', [
             'ref' => "refs/heads/{$data->name}",
-            'sha' => $base['object']['sha'],
+            'sha' => $this->commitSha($path, $data->fromRef, 'base ref'),
         ]);
 
         return $response->json('ref');
@@ -900,14 +905,14 @@ class Github extends BaseProvider
      *
      * GitHub's create-ref endpoint takes a commit SHA and nothing else (`sha: "main"` is a
      * 422), so a ref that is not already a full sha is resolved first — the same reason
-     * {@see createBranch()} reads its base ref before creating anything.
+     * {@see createBranch()} resolves its base ref before creating anything.
      */
     public function createTag(string $path, NewTag $data): Tag
     {
         $this->guardSupported(Feature::CreateTag);
         $this->guardAuthenticated();
 
-        $sha = $this->commitSha($path, $data->ref);
+        $sha = $this->commitSha($path, $data->ref, 'tag ref');
 
         $response = $this->send('POST', $this->repos($path).'/git/refs', [
             'ref' => "refs/tags/{$data->name}",
@@ -926,13 +931,13 @@ class Github extends BaseProvider
     }
 
     /** The commit a ref names — without a round trip when it already is a full sha. */
-    private function commitSha(string $path, string $ref): string
+    private function commitSha(string $path, string $ref, string $label): string
     {
         if (preg_match('/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i', $ref) === 1) {
             return $ref;
         }
 
-        return (string) $this->get($this->repos($path).'/commits/'.$this->refSegments('tag ref', $ref))->json('sha');
+        return (string) $this->get($this->repos($path).'/commits/'.$this->refSegments($label, $ref))->json('sha');
     }
 
     public function createWebhook(string $path, NewWebhook $data): Webhook

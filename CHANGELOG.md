@@ -10,6 +10,9 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 - GitHub `issues()` no longer lists pull requests as issues. GitHub's issues endpoint returns
   both; the pull requests are now dropped, and `hasMore` still follows the `Link` header.
+- GitHub `createBranch()` now accepts a tag or a commit sha as `NewBranch::$fromRef`, as GitLab
+  does. It used to read `/git/refs/heads/{fromRef}`, which is a 404 for a tag or a sha and
+  crashed when the name only prefixed a branch.
 
 ## 1.0.0 - 2026-10-03
 

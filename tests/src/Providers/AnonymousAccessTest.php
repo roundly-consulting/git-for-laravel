@@ -87,7 +87,10 @@ it('answers a 401 on a read with a credential as a rejected credential', functio
 });
 
 it('answers a 401 on a write with a credential as a rejected credential', function () {
-    Http::fake(['*/repos/o/r/git/refs*' => Http::response(['message' => 'Bad credentials'], 401)]);
+    Http::fake([
+        '*/repos/o/r/commits/main' => Http::response(['sha' => 'basesha']),
+        '*/repos/o/r/git/refs' => Http::response(['message' => 'Bad credentials'], 401),
+    ]);
 
     expect(fn () => github('ghp_revoked')->createBranch('o/r', new NewBranch('feature', 'main')))
         ->toThrow(InvalidCredentialsException::class, 'rejected the credential');

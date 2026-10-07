@@ -171,11 +171,41 @@ it('creates a repository', function () {
 
 it('creates a branch from a base ref', function () {
     Http::fake([
-        '*/repos/o/r/git/refs/heads/main' => Http::response(['object' => ['sha' => 'basesha']]),
-        '*/repos/o/r/git/refs' => Http::response(['ref' => 'refs/heads/feature']),
+        '*/repos/o/r/commits/main' => Http::response(['sha' => 'basesha', 'commit' => ['message' => 'm']]),
+        '*/repos/o/r/git/refs' => Http::response(['ref' => 'refs/heads/feature', 'object' => ['sha' => 'basesha', 'type' => 'commit']], 201),
     ]);
 
     expect(github()->createBranch('o/r', new NewBranch('feature', 'main')))->toBe('refs/heads/feature');
+
+    Http::assertSent(fn ($r): bool => $r->method() === 'POST' && $r['sha'] === 'basesha');
+});
+
+it('creates a branch from a TAG base, resolving it to its commit', function () {
+    // `/git/refs/heads/v1.0` is a 404 for a tag, and a prefix such as `heads/1` answers a
+    // LIST of refs — the base is resolved through the commits endpoint instead.
+    Http::fake([
+        '*/repos/o/r/commits/v1.0' => Http::response(['sha' => 'abc', 'commit' => ['message' => 'release']]),
+        '*/repos/o/r/git/refs/heads/*' => Http::response(['message' => 'Not Found'], 404),
+        '*/repos/o/r/git/refs' => Http::response(['ref' => 'refs/heads/f', 'object' => ['sha' => 'abc', 'type' => 'commit']], 201),
+    ]);
+
+    expect(github()->createBranch('o/r', new NewBranch('f', 'v1.0')))->toBe('refs/heads/f');
+
+    Http::assertSent(fn ($r): bool => $r->method() === 'POST' && $r['ref'] === 'refs/heads/f' && $r['sha'] === 'abc');
+    Http::assertNotSent(fn ($r): bool => str_contains($r->url(), '/git/refs/heads/'));
+});
+
+it('creates a branch from a full sha without looking it up', function () {
+    $sha = str_repeat('a1b2c3d4e5', 4);
+
+    Http::fake([
+        '*/repos/o/r/git/refs' => Http::response(['ref' => 'refs/heads/f', 'object' => ['sha' => $sha, 'type' => 'commit']], 201),
+    ]);
+
+    github()->createBranch('o/r', new NewBranch('f', $sha));
+
+    Http::assertSentCount(1);
+    Http::assertSent(fn ($r): bool => $r->method() === 'POST' && $r['sha'] === $sha);
 });
 
 it('creates and updates a file', function () {
