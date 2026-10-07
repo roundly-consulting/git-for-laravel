@@ -15,6 +15,12 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   every other credential. Scoped mints of one installation share its budget, as GitHub counts
   them. A class using `Concerns\InteractsWithRateLimits` outside `BaseProvider` must now
   implement `rateLimitIdentity()`.
+- `Git::fake()` now refuses the inputs the real drivers refuse, by running the drivers' own
+  checks: Bitbucket commit filters by author or date, a GitLab comment with no `target`, a
+  Bitbucket comment on an issue, Bitbucket `createRepository()` with `autoInit` or a
+  `defaultBranch`, GitLab `createRepository()` with a non-numeric `owner`, and a GitLab webhook
+  that is inactive or names an unknown event. A host test that relied on the fake accepting one
+  of these now fails as production would.
 
 ### Fixed
 

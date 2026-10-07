@@ -115,11 +115,7 @@ class Bitbucket extends BaseProvider
     public function commits(string $path): CommitQuery
     {
         return new CommitQuery(function (array $filters, int $page, int $perPage) use ($path): Page {
-            $unsupported = array_values(array_intersect(['author', 'since', 'until'], array_keys($filters)));
-
-            if ($unsupported !== []) {
-                throw FeatureNotSupportedException::commitFilters($unsupported, $this->name(), 'a branch and a path');
-            }
+            $this->validateCommitFilters($filters);
 
             $query = [];
 
@@ -170,6 +166,22 @@ class Bitbucket extends BaseProvider
     }
 
     /**
+     * @internal the drivers' and the fake's shared input checks.
+     *
+     * @param  array<string, scalar>  $filters
+     *
+     * @throws FeatureNotSupportedException when the query filters by author or date
+     */
+    public function validateCommitFilters(array $filters): void
+    {
+        $unsupported = array_values(array_intersect(['author', 'since', 'until'], array_keys($filters)));
+
+        if ($unsupported !== []) {
+            throw FeatureNotSupportedException::commitFilters($unsupported, $this->name(), 'a branch and a path');
+        }
+    }
+
+    /**
      * `/2.0/repositories/{workspace}/{slug}`, the path guarded and encoded segment by
      * segment — every Bitbucket URL starts here.
      *
@@ -205,13 +217,7 @@ class Bitbucket extends BaseProvider
             $this->guardSupported(Feature::GenerateFromTemplate);
         }
 
-        // No `auto_init` equivalent exists, so honouring these would mean pretending. A
-        // caller that asked for an initial commit and silently got an empty repository
-        // discovers it at `git clone`, far from here.
-        if ($data->autoInit || $data->defaultBranch !== null) {
-            $this->featureNotSupported();
-        }
-
+        $this->validateNewRepository($data);
         $this->guardAuthenticated();
 
         $path = $data->owner !== null ? "{$data->owner}/{$data->name}" : $data->name;
@@ -223,6 +229,21 @@ class Bitbucket extends BaseProvider
         ]);
 
         return $this->mapper()->repository($response->json());
+    }
+
+    /**
+     * @internal the drivers' and the fake's shared input checks.
+     *
+     * @throws FeatureNotSupportedException for an initial commit or a default branch
+     */
+    public function validateNewRepository(NewRepository $data): void
+    {
+        // No `auto_init` equivalent exists, so honouring these would mean pretending. A
+        // caller that asked for an initial commit and silently got an empty repository
+        // discovers it at `git clone`, far from here.
+        if ($data->autoInit || $data->defaultBranch !== null) {
+            throw FeatureNotSupportedException::for(feature: 'createRepository', provider: $this->name());
+        }
     }
 
     public function createPullRequest(string $path, NewPullRequest $data): PullRequest
@@ -248,11 +269,7 @@ class Bitbucket extends BaseProvider
     public function comment(string $path, NewComment $data): Comment
     {
         $this->guardSupported(Feature::CreateComment);
-
-        if ($data->target === CommentTarget::Issue) {
-            throw FeatureNotSupportedException::for('issue comments', $this->name());
-        }
-
+        $this->validateComment($data);
         $this->guardAuthenticated();
 
         $response = $this->send('POST', $this->repositoryUrl($path)."/pullrequests/{$data->number}/comments", [
@@ -272,6 +289,18 @@ class Bitbucket extends BaseProvider
             url: $comment['links']['html']['href'] ?? null,
             createdAt: Carbon::parse($comment['created_on']),
         );
+    }
+
+    /**
+     * @internal the drivers' and the fake's shared input checks.
+     *
+     * @throws FeatureNotSupportedException for a comment targeted at an issue
+     */
+    public function validateComment(NewComment $data): void
+    {
+        if ($data->target === CommentTarget::Issue) {
+            throw FeatureNotSupportedException::for('issue comments', $this->name());
+        }
     }
 
     public function createWebhook(string $path, NewWebhook $data): Webhook

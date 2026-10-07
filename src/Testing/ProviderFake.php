@@ -52,6 +52,7 @@ use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Interfaces\Provider;
+use RoundlyConsulting\Git\Providers\BaseProvider;
 use RoundlyConsulting\Git\Query\CommitQuery;
 use RuntimeException;
 
@@ -76,7 +77,9 @@ use RuntimeException;
  * Every call first passes the feature matrix of the REAL driver it stands in for — the
  * list is read off that driver, not restated here — so a fake Bitbucket refuses a merge
  * with the same FeatureNotSupportedException production throws, and a host test cannot
- * pass against a flow its forge rejects.
+ * pass against a flow its forge rejects. The same goes for the driver's input rules
+ * (comment targets, commit filters, repository and webhook input): the fake runs the
+ * driver's own `validate*()` checks, not a copy of them.
  */
 final class ProviderFake implements Provider
 {
@@ -90,11 +93,13 @@ final class ProviderFake implements Provider
 
     /**
      * @param  list<Feature>  $features  the real driver's feature list, which this fake enforces
+     * @param  Provider|null  $driver  the real driver, whose input checks this fake runs
      */
     public function __construct(
         private readonly ProviderName $name,
         private readonly GitFake $git,
         private readonly array $features,
+        private readonly ?Provider $driver = null,
     ) {}
 
     /** @param BatchResult<mixed> $result */
@@ -504,7 +509,9 @@ final class ProviderFake implements Provider
      *
      * The filters a caller chains (`->branch()`, `->since()`) are applied by the REAL
      * provider's query translation, which the fake has no HTTP layer to run — so they
-     * are recorded rather than honoured, and every page answers the seeded set.
+     * are recorded rather than honoured, and every page answers the seeded set. A filter
+     * the forge cannot apply at all (Bitbucket's author and dates) is refused, as the
+     * real driver refuses it.
      */
     public function commits(string $path): CommitQuery
     {
@@ -513,6 +520,8 @@ final class ProviderFake implements Provider
         $this->record('commits', [$path]);
 
         return new CommitQuery(function (array $filters, int $page, int $perPage): Page {
+            $this->driverChecks()?->validateCommitFilters($filters);
+
             $this->record('commits.get', [$filters, $page, $perPage]);
 
             return $this->page($this->list('commits'), $perPage, $page);
@@ -667,6 +676,8 @@ final class ProviderFake implements Provider
         if ($data->template !== null) {
             $this->ensureSupported(Feature::GenerateFromTemplate);
         }
+
+        $this->driverChecks()?->validateNewRepository($data);
 
         $this->record('createRepository', [$data]);
 
@@ -846,6 +857,7 @@ final class ProviderFake implements Provider
     public function comment(string $path, NewComment $data): Comment
     {
         $this->ensureSupported(Feature::CreateComment);
+        $this->driverChecks()?->validateComment($data);
 
         $this->record('comment', [$path, $data]);
 
@@ -986,6 +998,7 @@ final class ProviderFake implements Provider
     public function createWebhook(string $path, NewWebhook $data): Webhook
     {
         $this->ensureSupported(Feature::CreateWebhook);
+        $this->driverChecks()?->validateNewWebhook($data);
 
         $this->record('createWebhook', [$path, $data]);
 
@@ -1019,6 +1032,12 @@ final class ProviderFake implements Provider
         $hooks = $this->seeded['webhooks'] ?? [];
 
         return $hooks;
+    }
+
+    /** The real driver, for its input checks — none when a host bound a driver of its own shape. */
+    private function driverChecks(): ?BaseProvider
+    {
+        return $this->driver instanceof BaseProvider ? $this->driver : null;
     }
 
     private function seededPullRequest(?int $number = null): PullRequest

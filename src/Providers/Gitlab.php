@@ -407,12 +407,7 @@ class Gitlab extends BaseProvider
         }
 
         $this->guardAuthenticated();
-
-        if ($data->owner !== null && ! ctype_digit($data->owner)) {
-            throw new InvalidArgumentException(
-                "GitLab needs a numeric namespace id for the owner, got [{$data->owner}]."
-            );
-        }
+        $this->validateNewRepository($data);
 
         $response = $this->send('POST', '/api/v4/projects', [
             'name' => $data->name,
@@ -427,6 +422,20 @@ class Gitlab extends BaseProvider
         ]);
 
         return $this->mapper()->repository($response->json());
+    }
+
+    /**
+     * @internal the drivers' and the fake's shared input checks.
+     *
+     * @throws InvalidArgumentException when the owner is not a numeric namespace id
+     */
+    public function validateNewRepository(NewRepository $data): void
+    {
+        if ($data->owner !== null && ! ctype_digit($data->owner)) {
+            throw new InvalidArgumentException(
+                "GitLab needs a numeric namespace id for the owner, got [{$data->owner}]."
+            );
+        }
     }
 
     public function createBranch(string $path, NewBranch $data): string
@@ -513,14 +522,9 @@ class Gitlab extends BaseProvider
     {
         $this->guardSupported(Feature::CreateComment);
         $this->guardAuthenticated();
+        $this->validateComment($data);
 
-        $collection = match ($data->target) {
-            CommentTarget::Issue => 'issues',
-            CommentTarget::PullRequest => 'merge_requests',
-            null => throw new InvalidArgumentException(
-                'GitLab numbers issues and merge requests separately: pass target: CommentTarget::Issue or CommentTarget::PullRequest.'
-            ),
-        };
+        $collection = $data->target === CommentTarget::Issue ? 'issues' : 'merge_requests';
 
         $response = $this->send(
             'POST',
@@ -541,6 +545,20 @@ class Gitlab extends BaseProvider
             url: null,
             createdAt: Carbon::parse($note['created_at']),
         );
+    }
+
+    /**
+     * @internal the drivers' and the fake's shared input checks.
+     *
+     * @throws InvalidArgumentException when the comment names no target
+     */
+    public function validateComment(NewComment $data): void
+    {
+        if ($data->target === null) {
+            throw new InvalidArgumentException(
+                'GitLab numbers issues and merge requests separately: pass target: CommentTarget::Issue or CommentTarget::PullRequest.'
+            );
+        }
     }
 
     public function createRelease(string $path, NewRelease $data): Release
@@ -593,10 +611,7 @@ class Gitlab extends BaseProvider
     {
         $this->guardSupported(Feature::CreateWebhook);
         $this->guardAuthenticated();
-
-        if (! $data->active) {
-            throw FeatureNotSupportedException::for('inactive webhooks', $this->name());
-        }
+        $this->validateNewWebhook($data);
 
         $response = $this->send('POST', '/api/v4/projects/'.$this->encode($path).'/hooks', [
             'url' => $data->url,
@@ -608,6 +623,21 @@ class Gitlab extends BaseProvider
         $hook = $response->json();
 
         return $this->mapWebhook($hook, $data->url);
+    }
+
+    /**
+     * @internal the drivers' and the fake's shared input checks.
+     *
+     * @throws FeatureNotSupportedException for an inactive hook — GitLab cannot create one
+     * @throws InvalidArgumentException for an event GitLab has no flag for
+     */
+    public function validateNewWebhook(NewWebhook $data): void
+    {
+        if (! $data->active) {
+            throw FeatureNotSupportedException::for('inactive webhooks', $this->name());
+        }
+
+        $this->webhookFlags($data->events);
     }
 
     public function deleteWebhook(string $path, string $id): void

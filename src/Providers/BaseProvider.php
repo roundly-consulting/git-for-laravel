@@ -509,6 +509,30 @@ abstract class BaseProvider implements Provider
     }
 
     /**
+     * Refuse commit filters the forge cannot apply — before any request.
+     *
+     * The four `validate*()` checks are the input rules a driver enforces beyond its
+     * feature list. They are public so `Testing\ProviderFake` runs the very same ones
+     * rather than a copy that drifts: a host test must not pass against an input
+     * production refuses. No-ops here; a driver whose forge refuses an input overrides
+     * the check that applies.
+     *
+     * @internal the drivers' and the fake's shared input checks.
+     *
+     * @param  array<string, scalar>  $filters
+     */
+    public function validateCommitFilters(array $filters): void {}
+
+    /** @internal the drivers' and the fake's shared input checks. */
+    public function validateComment(NewComment $data): void {}
+
+    /** @internal the drivers' and the fake's shared input checks. */
+    public function validateNewRepository(NewRepository $data): void {}
+
+    /** @internal the drivers' and the fake's shared input checks. */
+    public function validateNewWebhook(NewWebhook $data): void {}
+
+    /**
      * The secret to put in a clone URL for a credential.
      *
      * Shared by all three providers because getting it wrong is silent in two different

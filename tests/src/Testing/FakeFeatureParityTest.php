@@ -2,7 +2,12 @@
 
 declare(strict_types=1);
 
+use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Git\Dto\Credentials\Token;
+use RoundlyConsulting\Git\Dto\Input\NewComment;
 use RoundlyConsulting\Git\Dto\Input\NewRepository;
+use RoundlyConsulting\Git\Dto\Input\NewWebhook;
+use RoundlyConsulting\Git\Enums\CommentTarget;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
@@ -68,3 +73,39 @@ it('still drives every supported operation on the fake', function () {
 
     $fake->assertSent(ProviderName::Github, 'mergePullRequest');
 });
+
+/** The exception a call ends in, or null when it returns. */
+function thrownBy(Closure $call): ?Throwable
+{
+    try {
+        $call();
+    } catch (Throwable $exception) {
+        return $exception;
+    }
+
+    return null;
+}
+
+it('refuses on the fake every input the real driver refuses, before recording it', function (ProviderName $name, string $method, Closure $call) {
+    Http::fake();
+
+    $real = thrownBy(fn () => $call(Git::provider($name, Token::from('t'))));
+
+    $fake = Git::fake();
+    $faked = thrownBy(fn () => $call(Git::provider($name, Token::from('t'))));
+
+    expect($real)->not->toBeNull()
+        ->and($faked)->toBeInstanceOf($real::class)
+        ->and($faked?->getMessage())->toBe($real->getMessage());
+
+    $fake->assertNotSent($name, $method);
+    Http::assertNothingSent();
+})->with([
+    'bitbucket commit date filter' => [ProviderName::Bitbucket, 'commits.get', fn ($p) => $p->repo('a/b')->commits()->since('2026-01-01')->get()],
+    'gitlab comment with no target' => [ProviderName::Gitlab, 'comment', fn ($p) => $p->comment('g/p', new NewComment(3, 'hi'))],
+    'bitbucket issue comment' => [ProviderName::Bitbucket, 'comment', fn ($p) => $p->comment('a/b', new NewComment(3, 'hi', CommentTarget::Issue))],
+    'bitbucket initial commit' => [ProviderName::Bitbucket, 'createRepository', fn ($p) => $p->createRepository(new NewRepository(name: 'x', owner: 'ws', autoInit: true))],
+    'gitlab named owner' => [ProviderName::Gitlab, 'createRepository', fn ($p) => $p->createRepository(new NewRepository(name: 'x', owner: 'acme'))],
+    'gitlab inactive hook' => [ProviderName::Gitlab, 'createWebhook', fn ($p) => $p->createWebhook('g/p', new NewWebhook('https://app.test/hook', ['push'], active: false))],
+    'gitlab unknown hook event' => [ProviderName::Gitlab, 'createWebhook', fn ($p) => $p->createWebhook('g/p', new NewWebhook('https://app.test/hook', ['bogus']))],
+]);
