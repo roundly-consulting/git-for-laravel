@@ -319,6 +319,7 @@ it('names the missing app config key rather than failing as unauthenticated', fu
 
 it('builds an install url through the fake', function () {
     fakeCredentials();
+    config()->set('git.providers.github.app.slug', 'my-app');
 
     $fake = Git::fake();
 

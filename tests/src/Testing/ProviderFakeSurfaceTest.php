@@ -333,6 +333,8 @@ it('answers a search from the repository bucket when no results were seeded', fu
 });
 
 it('omits an EMPTY state from the fake install url, like the real provider does', function (): void {
+    config()->set('git.providers.github.app.slug', 'my-app');
+
     $provider = Git::fake()->github();
 
     // A consumer that built a state and got back '' would otherwise be able to assert a

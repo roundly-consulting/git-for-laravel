@@ -158,6 +158,21 @@ describe('credential parity', function (): void {
         expect(fn () => Git::githubApp())->toThrow(InvalidCredentialsException::class, 'git.providers.github.app.id');
     });
 
+    it('refuses an install url with no app slug configured, as the real driver does', function (?string $slug) {
+        config()->set('git.providers.github.app.slug', $slug);
+
+        $fake = Git::fake();
+
+        expect(fn () => Git::github()->installUrl('s1'))
+            ->toThrow(InvalidCredentialsException::class, 'git.providers.github.app.slug');
+
+        $fake->assertNotSent(ProviderName::Github, 'installUrl');
+
+        config()->set('git.providers.github.app.slug', 'my-app');
+
+        expect(Git::github()->installUrl('s1'))->toBe('https://fake/apps/my-app/installations/new?state=s1');
+    })->with(['not set' => null, 'blank' => '  ']);
+
     it('drives the app flow once fake app keys are configured', function () {
         config()->set('git.providers.github.app.id', '123');
         config()->set('git.providers.github.app.private_key', 'fake-key');

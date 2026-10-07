@@ -17,6 +17,10 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 - GitHub `issue($number)` with a pull request's number throws the same `404`
   `RequestException` as a missing issue, instead of returning the pull request as an `Issue`
   (GitHub's `/issues/{number}` serves both). The issue list already left pull requests out.
+- `Git::fake()`'s `installUrl()` throws `InvalidCredentialsException::missingAppConfig()` naming
+  `git.providers.github.app.slug` when no app slug is configured, as the real driver does,
+  instead of falling back to a `fake-app` slug. A host test that builds an install URL on the
+  fake now configures the slug.
 
 ## 1.1.0 - 2026-10-07
 

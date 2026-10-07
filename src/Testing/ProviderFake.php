@@ -56,6 +56,7 @@ use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Interfaces\Provider;
 use RoundlyConsulting\Git\Providers\BaseProvider;
 use RoundlyConsulting\Git\Query\CommitQuery;
+use RoundlyConsulting\Git\Support\Settings;
 use RuntimeException;
 
 /**
@@ -510,6 +511,9 @@ final class ProviderFake implements ListsWebhookEvents, Provider
     /**
      * The install URL, matching the real provider's treatment of an EMPTY state.
      *
+     * With no `app.slug` configured it throws `missingAppConfig()`, as the real provider
+     * does — there is no fallback slug a host test could assert against.
+     *
      * `''` is what a consumer passes when it built a state and got back an empty string.
      * The real provider omits the parameter; a fake that appended `?state=` instead would
      * let a test assert a URL production never produces.
@@ -522,9 +526,11 @@ final class ProviderFake implements ListsWebhookEvents, Provider
             throw FeatureNotSupportedException::for(feature: 'installUrl', provider: $this->name());
         }
 
-        $this->record('installUrl', [$state]);
+        // The real driver needs the app's slug to build the URL and names the missing key.
+        $slug = Settings::filled(config("git.providers.{$this->name->key()}.app.slug"))
+            ?? throw InvalidCredentialsException::missingAppConfig($this->name->key(), 'slug');
 
-        $slug = config("git.providers.{$this->name->key()}.app.slug") ?: 'fake-app';
+        $this->record('installUrl', [$state]);
 
         $url = "https://fake/apps/{$slug}/installations/new";
 

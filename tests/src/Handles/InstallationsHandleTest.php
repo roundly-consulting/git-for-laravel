@@ -25,6 +25,7 @@ function handleInstallation(string $login = 'acme-inc'): Installation
 
 it('drives every installation lookup through the handle', function (): void {
     fakeCredentials();
+    config()->set('git.providers.github.app.slug', 'my-app');
 
     $fake = Git::fake();
     $fake->github()->seedInstallation(handleInstallation());
