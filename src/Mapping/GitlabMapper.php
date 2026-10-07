@@ -83,6 +83,7 @@ final class GitlabMapper implements ResourceMapper
             ) : null,
             url: $raw['web_url'] ?? null,
             createdAt: Carbon::parse($raw['created_at']),
+            draft: (bool) ($raw['draft'] ?? false),
             raw: $raw,
         );
     }

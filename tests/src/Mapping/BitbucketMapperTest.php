@@ -72,3 +72,19 @@ it('maps a repository, issue, release and tag', function () {
         ->and($release->tagName)->toBe('v1')
         ->and($tag->sha)->toBe('abc');
 });
+
+it('maps a draft pull request as a draft', function (array $extra, bool $draft) {
+    $pr = $this->mapper->pullRequest([
+        'type' => 'pullrequest', 'id' => 12, 'title' => 'Rework auth', 'description' => '', 'state' => 'OPEN',
+        'source' => ['branch' => ['name' => 'auth']], 'destination' => ['branch' => ['name' => 'main']],
+        'author' => ['display_name' => 'Jane', 'links' => ['avatar' => ['href' => 'https://a']]],
+        'links' => ['html' => ['href' => 'https://bitbucket.org/w/r/pull-requests/12']],
+        'created_on' => '2026-01-01T00:00:00.000000+00:00',
+    ] + $extra);
+
+    expect($pr->draft)->toBe($draft);
+})->with([
+    'draft' => [['draft' => true], true],
+    'ready' => [['draft' => false], false],
+    'no draft key' => [[], false],
+]);

@@ -2,6 +2,8 @@
 
 declare(strict_types=1);
 
+use RoundlyConsulting\Git\Dto\WebhookEvent;
+use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Enums\ResourceState;
 use RoundlyConsulting\Git\Mapping\GitlabMapper;
 
@@ -36,4 +38,24 @@ it('normalizes merge request state', function () {
 
     expect($mr->state)->toBe(ResourceState::Merged)
         ->and($mr->number)->toBe(4);
+});
+
+it('maps a draft merge request as a draft', function (array $extra, bool $draft) {
+    $mr = $this->mapper->pullRequest([
+        'id' => 1, 'iid' => 2, 'title' => 'Draft: Rework auth', 'state' => 'opened',
+        'source_branch' => 'auth', 'target_branch' => 'main', 'created_at' => '2026-01-01T00:00:00Z',
+        'web_url' => 'https://gitlab.com/g/p/-/merge_requests/2',
+    ] + $extra);
+
+    expect($mr->draft)->toBe($draft);
+})->with([
+    'draft' => [['draft' => true, 'work_in_progress' => true], true],
+    'ready' => [['draft' => false, 'work_in_progress' => false], false],
+    'no draft key' => [[], false],
+]);
+
+it('maps a draft merge request hook as a draft', function () {
+    $mr = new WebhookEvent(ProviderName::Gitlab, 'Merge Request Hook', webhookFixture('gitlab', 'merge_request_opened'));
+
+    expect($mr->pullRequest()?->draft)->toBeTrue();
 });

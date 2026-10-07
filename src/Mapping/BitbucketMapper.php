@@ -79,6 +79,7 @@ final class BitbucketMapper implements ResourceMapper
             ) : null,
             url: $raw['links']['html']['href'] ?? null,
             createdAt: Carbon::parse($raw['created_on']),
+            draft: (bool) ($raw['draft'] ?? false),
             raw: $raw,
         );
     }

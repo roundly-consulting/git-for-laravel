@@ -71,6 +71,8 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 - A GitLab merge request webhook now maps the pull request's `url` (GitLab sends `url`, not
   `web_url`) and its `author` — the triggering `user` when it is the merge request's author,
   otherwise `null`. Both used to be `null`.
+- GitLab and Bitbucket pull requests (REST and webhook) now report `draft: true` for a draft.
+  It was always `false`.
 
 ## 1.0.0 - 2026-10-03
 
