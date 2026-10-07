@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Providers;
 
+use GuzzleHttp\Psr7\Response as GuzzleResponse;
 use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\LazyCollection;
 use RoundlyConsulting\Git\Dto\Author;
@@ -335,11 +337,30 @@ class Github extends BaseProvider
         );
     }
 
+    /**
+     * One issue — never a pull request.
+     *
+     * `/issues/{n}` serves a pull request as well (marked by its `pull_request` key), so a
+     * pull request's number is answered as the issue it is not: the same `404`
+     * `RequestException` a missing issue throws, with GitHub's own not-found body.
+     *
+     * @throws RequestException when there is no issue with that number
+     */
     public function issue(string $path, int $number): Issue
     {
         $this->guardSupported(Feature::FindIssue);
 
-        return $this->mapper()->issue($this->get($this->repos($path)."/issues/{$number}")->json());
+        $issue = $this->get($this->repos($path)."/issues/{$number}")->json();
+
+        if (is_array($issue) && isset($issue['pull_request'])) {
+            throw new RequestException(new Response(new GuzzleResponse(
+                404,
+                ['Content-Type' => 'application/json; charset=utf-8'],
+                (string) json_encode(['message' => 'Not Found', 'documentation_url' => 'https://docs.github.com/rest/issues/issues#get-an-issue', 'status' => '404']),
+            )));
+        }
+
+        return $this->mapper()->issue($issue);
     }
 
     /** @return Page<Tag> */

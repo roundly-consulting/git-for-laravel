@@ -99,6 +99,38 @@ it('leaves pull requests out of the issue list, keeping the next-page signal', f
         ->and($page->hasMore)->toBeTrue();
 });
 
+it('answers a pull request number on issue() as the same not-found a missing issue is', function () {
+    // `/issues/{n}` serves a pull request too, marked by its `pull_request` key.
+    Http::fake([
+        '*/repos/o/r/issues/7' => Http::response([
+            'id' => 1007, 'number' => 7, 'title' => 'Add a feature', 'state' => 'open',
+            'body' => 'b', 'user' => ['login' => 'octocat', 'avatar_url' => 'a'],
+            'html_url' => 'https://github.com/o/r/pull/7', 'created_at' => '2020-01-01T00:00:00Z',
+            'pull_request' => ['url' => 'https://api.github.com/repos/o/r/pulls/7', 'html_url' => 'https://github.com/o/r/pull/7', 'merged_at' => null],
+        ]),
+        '*/repos/o/r/issues/8' => Http::response(['message' => 'Not Found', 'status' => '404'], 404),
+    ]);
+
+    $notFound = function (int $number): RequestException {
+        try {
+            github()->issue('o/r', $number);
+        } catch (RequestException $exception) {
+            return $exception;
+        }
+
+        throw new RuntimeException("issue({$number}) did not throw");
+    };
+
+    $pullRequest = $notFound(7);
+    $missing = $notFound(8);
+
+    expect($pullRequest->response->status())->toBe(404)
+        ->and($pullRequest->response->notFound())->toBeTrue()
+        ->and($pullRequest::class)->toBe($missing::class)
+        ->and($pullRequest->response->status())->toBe($missing->response->status())
+        ->and($pullRequest->response->json('message'))->toContain('Not Found');
+});
+
 it('lists tags and releases', function () {
     Http::fake([
         '*/repos/o/r/tags*' => Http::response([['name' => 'v1.0', 'commit' => ['sha' => 'abc', 'url' => 'u']]]),
