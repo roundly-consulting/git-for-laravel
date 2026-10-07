@@ -44,7 +44,8 @@ it('reads bitbucket hook events back in the canonical names', function (): void 
         'events' => ['repo:push', 'pullrequest:created', 'pullrequest:fulfilled', 'issue:created'],
     ]]])]);
 
-    expect(bitbucket()->listWebhooks('ws/app')[0]->events)->toBe(['push', 'pull_request', 'issue:created']);
+    // Two of the four pull request events: reported natively, not as a full `pull_request`.
+    expect(bitbucket()->listWebhooks('ws/app')[0]->events)->toBe(['push', 'pullrequest:created', 'pullrequest:fulfilled', 'issue:created']);
 });
 
 it('subscribes gitlab to merge request events for pull_request', function (): void {

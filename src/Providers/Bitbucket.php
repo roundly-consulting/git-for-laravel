@@ -464,22 +464,23 @@ class Bitbucket extends BaseProvider
     /**
      * Bitbucket's event names read back as the canonical ones `createWebhook()` takes.
      *
+     * A canonical name stands for ALL of its native events: a hook subscribed to only
+     * `pullrequest:created` is reported as exactly that, not as `pull_request` — which
+     * promises merges and declines too, and would make an incomplete hook look complete.
+     *
      * @param  array<mixed>  $events
      * @return list<string>
      */
     protected function canonicalWebhookEvents(array $events): array
     {
+        $natives = array_values(array_filter($events, is_string(...)));
         $canonical = [];
 
-        foreach ($events as $event) {
-            if (! is_string($event)) {
-                continue;
-            }
-
+        foreach ($natives as $event) {
             $name = $event;
 
-            foreach (self::WEBHOOK_EVENTS as $candidate => $natives) {
-                if (in_array($event, $natives, true)) {
+            foreach (self::WEBHOOK_EVENTS as $candidate => $group) {
+                if (in_array($event, $group, true) && array_diff($group, $natives) === []) {
                     $name = $candidate;
 
                     break;

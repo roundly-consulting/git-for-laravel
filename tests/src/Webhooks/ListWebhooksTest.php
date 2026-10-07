@@ -103,3 +103,21 @@ it('reads every page of hooks, so the second page is neither duplicated nor miss
     Http::assertNotSent(fn ($request): bool => $request->method() === 'POST');
     Http::assertSent(fn ($request): bool => $request->method() === 'DELETE');
 })->with(['github', 'gitlab', 'bitbucket']);
+
+it('reports a partial bitbucket pull request subscription by its native events', function (array $native, array $reported) {
+    // `pull_request` promises every pull request transition (created, updated, merged,
+    // declined); a hook subscribed to fewer must not read as one that gets them all.
+    Http::fake(['*/repositories/*/hooks*' => Http::response(['pagelen' => 10, 'page' => 1, 'size' => 1, 'values' => [[
+        'type' => 'webhook_subscription', 'uuid' => '{0b1e7a52-3c4d-4e5f-8a9b-0c1d2e3f4a5b}',
+        'url' => 'https://app.test/hook', 'description' => 'hook', 'subject_type' => 'repository',
+        'active' => true, 'events' => $native,
+    ]]])]);
+
+    expect(Git::bitbucket(Token::from('x'))->listWebhooks('acme/api')[0]->events)->toBe($reported);
+})->with([
+    'only created' => [['pullrequest:created'], ['pullrequest:created']],
+    'three of four' => [['pullrequest:created', 'pullrequest:updated', 'pullrequest:fulfilled'], ['pullrequest:created', 'pullrequest:updated', 'pullrequest:fulfilled']],
+    'all four' => [['pullrequest:created', 'pullrequest:updated', 'pullrequest:fulfilled', 'pullrequest:rejected'], ['pull_request']],
+    'push and all four' => [['repo:push', 'pullrequest:rejected', 'pullrequest:created', 'pullrequest:updated', 'pullrequest:fulfilled'], ['push', 'pull_request']],
+    'push' => [['repo:push'], ['push']],
+]);

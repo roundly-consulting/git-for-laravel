@@ -84,6 +84,9 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 - `batch()->pullRequest()` now throws `InvalidArgumentException` naming a reference that is not
   `path#number` (number 1 or more) before sending anything. A reference with no `#` failed with
   an `ErrorException`, and `acme/app#x` requested `/pulls/0`. `Git::fake()` refuses the same.
+- Bitbucket `listWebhooks()` reports a hook as `pull_request` only when it is subscribed to all
+  four pull request events (created, updated, fulfilled, rejected). A partial subscription is
+  now reported by its native names (`pullrequest:created`), instead of looking complete.
 
 ## 1.0.0 - 2026-10-03
 
