@@ -26,6 +26,9 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 - `batch()->contents()` with a directory path reports a `BatchError` for that path only (no
   status, the `notAFile` message) instead of failing the whole batch with an
   `OutOfScopeException`; the other files are still returned.
+- `php artisan git:webhook` prints a refused registration — no URL to derive with the route
+  disabled, a secret the package route cannot verify, a hook at the URL with other events — as
+  a one-line error and exits 1, instead of showing the `InvalidArgumentException`.
 
 ## 1.1.0 - 2026-10-07
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace RoundlyConsulting\Git\Commands;
 
 use Illuminate\Console\Command;
+use InvalidArgumentException;
 use RoundlyConsulting\Git\Dto\Webhook;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Exceptions\OutOfScopeException;
@@ -71,11 +72,19 @@ final class WebhookCommand extends Command
         $url = $this->option('url');
         $secret = $this->option('secret');
 
-        $hook = $webhooks->register(
-            url: is_string($url) && $url !== '' ? $url : null,
-            events: $this->events(),
-            secret: is_string($secret) && $secret !== '' ? $secret : null,
-        );
+        try {
+            $hook = $webhooks->register(
+                url: is_string($url) && $url !== '' ? $url : null,
+                events: $this->events(),
+                secret: is_string($secret) && $secret !== '' ? $secret : null,
+            );
+        } catch (InvalidArgumentException $exception) {
+            // A refusal (no URL to derive, no verifiable secret, a hook with other events)
+            // is the operator's to fix — a line, not a stack trace.
+            $this->error($exception->getMessage());
+
+            return self::FAILURE;
+        }
 
         $this->info("Webhook [{$hook->id}] registered at {$hook->url}.");
 

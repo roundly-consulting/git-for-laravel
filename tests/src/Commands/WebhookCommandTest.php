@@ -49,3 +49,24 @@ it('fails with a friendly message when no credentials are set', function () {
 it('rejects an unknown provider', function () {
     $this->artisan('git:webhook unknown acme/api')->assertExitCode(1);
 });
+
+it('prints a refused registration as a one-line error', function (string $command, array $hooks, string $message) {
+    Http::fake(['*/repos/acme/api/hooks*' => Http::response($hooks)]);
+
+    $this->artisan($command)
+        ->expectsOutput($message)
+        ->assertExitCode(1);
+
+    Http::assertNotSent(fn ($request): bool => $request->method() === 'POST');
+})->with([
+    'no url, webhooks disabled' => [
+        'git:webhook github acme/api',
+        [],
+        'Cannot derive the webhook URL: enable [git.webhooks.enabled] or pass an explicit $url.',
+    ],
+    'a hook at the url with other events' => [
+        'git:webhook github acme/api --url=https://app.test/hook --events=push',
+        [['id' => 11, 'config' => ['url' => 'https://app.test/hook'], 'events' => ['issues'], 'active' => true]],
+        'A webhook for [https://app.test/hook] already exists (id [11]) with the events [issues], not [push]: delete it first, or register the events it has.',
+    ],
+]);
