@@ -2,6 +2,7 @@
 
 use GuzzleHttp\Promise\PromiseInterface;
 use Illuminate\Support\Facades\Http;
+use RoundlyConsulting\Crypto\Hash\Digest;
 use RoundlyConsulting\Crypto\Signature\Key\RsaKey;
 use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
@@ -137,6 +138,18 @@ if (! function_exists('bitbucket')) {
                 credentials: new SensitiveParameterValue($accessToken)
             ),
         );
+    }
+}
+
+if (! function_exists('rateLimitKey')) {
+    /**
+     * The limiter key a provider authenticated with a token is throttled under — one budget
+     * per provider, owner and credential, the credential only ever as a digest. Shared here
+     * because both the rate-limit and the batch suites pin it.
+     */
+    function rateLimitKey(string $provider, string $token = 'token-value', string $owner = 'app'): string
+    {
+        return "git:{$provider}:{$owner}:".(new Digest)->hex($token);
     }
 }
 

@@ -6,6 +6,16 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Changed
+
+- Client-side rate limiting keeps one budget per credential: the limiter key is now
+  `git:<provider>:<owner>:<digest>` — a digest of the token, OAuth grant or GitHub App
+  installation (never the secret itself), or `anon` without a credential. One installation's
+  exhausted quota (and the adaptive `Retry-After` penalty that comes with it) no longer stalls
+  every other credential. Scoped mints of one installation share its budget, as GitHub counts
+  them. A class using `Concerns\InteractsWithRateLimits` outside `BaseProvider` must now
+  implement `rateLimitIdentity()`.
+
 ### Fixed
 
 - GitHub `issues()` no longer lists pull requests as issues. GitHub's issues endpoint returns

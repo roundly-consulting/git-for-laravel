@@ -24,6 +24,11 @@ function gitLimiterFor(string $provider): ?RateLimit
     {
         use InteractsWithRateLimits;
 
+        protected function rateLimitIdentity(): string
+        {
+            return 'anon';
+        }
+
         public function limiter(string $provider): ?RateLimit
         {
             return $this->rateLimiter($provider);

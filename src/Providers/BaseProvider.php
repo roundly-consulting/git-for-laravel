@@ -948,6 +948,23 @@ abstract class BaseProvider implements Provider
     }
 
     /**
+     * The credential's share of the rate-limit key: a digest, or `anon` without one.
+     *
+     * A GitHub App token is keyed by app + installation without its scope: GitHub counts
+     * the quota per installation, so every scoped mint of one installation shares it.
+     */
+    protected function rateLimitIdentity(): string
+    {
+        $credential = $this->authentication;
+
+        $identity = $credential instanceof GithubAppToken
+            ? 'app:'.$credential->appId.':'.$credential->installationId
+            : $this->credentialIdentity();
+
+        return $identity === '' ? 'anon' : (new Digest)->hex($identity);
+    }
+
+    /**
      * Attempts and backoff (ms) for a read. `.env` delivers both as strings, which are
      * read as the integers they spell; anything else is refused naming the key.
      *

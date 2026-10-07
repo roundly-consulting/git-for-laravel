@@ -164,5 +164,5 @@ it('accounts pooled requests through the rate limiter', function () {
     expect($result->errors()['acme/web']->message)->toBe('rate limited')
         ->and($provider->rateLimit())->not->toBeNull();
 
-    $limiter->assertAllowed('git:github:app');
+    $limiter->assertAllowed(rateLimitKey('github'));
 });

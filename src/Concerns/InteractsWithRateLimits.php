@@ -17,6 +17,15 @@ use RoundlyConsulting\HttpClientRateLimits\RateLimit;
 trait InteractsWithRateLimits
 {
     /**
+     * What tells one caller's budget from another's — a digest, never a secret.
+     *
+     * The forges count their quota per token or installation, so two credentials sharing
+     * one client-side window would also share its adaptive penalty: one installation's
+     * exhausted quota would stall every other one.
+     */
+    abstract protected function rateLimitIdentity(): string;
+
+    /**
      * Build the client-side rate limiter for a provider from its config, or
      * null when the host has disabled throttling for it.
      *
@@ -24,6 +33,8 @@ trait InteractsWithRateLimits
      * than hard-failing; set a `max_wait` to fail fast instead. With `adaptive`
      * on (the default) the limiter also honours the provider's own
      * `Retry-After` / `X-RateLimit-*` headers.
+     *
+     * One budget per provider, owner and credential: `git:<provider>:<owner>:<identity>`.
      */
     protected function rateLimiter(string $provider): ?RateLimit
     {
@@ -47,7 +58,7 @@ trait InteractsWithRateLimits
         $rateLimit = RateLimits::make(new Limit(
             maxAttempts: Settings::integer("{$key}.maxAttempts", $config['maxAttempts'] ?? null, 1, PHP_INT_MAX, 60),
             timespan: $timespan,
-        ))->by("git:{$provider}:{$owner}");
+        ))->by("git:{$provider}:{$owner}:{$this->rateLimitIdentity()}");
 
         if (Settings::boolean("{$key}.adaptive", $config['adaptive'] ?? null, true)) {
             $rateLimit->adaptive();
