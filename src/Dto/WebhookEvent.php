@@ -19,9 +19,13 @@ final readonly class WebhookEvent extends Dto
         public array $payload,
     ) {}
 
+    /**
+     * A branch or tag push. GitHub's `push` and Bitbucket's `repo:push` cover both; GitLab
+     * sends a tag push as its own `Tag Push Hook`.
+     */
     public function isPush(): bool
     {
-        return in_array($this->type, ['push', 'repo:push', 'Push Hook'], true);
+        return in_array($this->type, ['push', 'repo:push', 'Push Hook', 'Tag Push Hook'], true);
     }
 
     public function isPullRequest(): bool

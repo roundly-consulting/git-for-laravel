@@ -12,6 +12,9 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   (`object_kind: merge_request`), as GitHub and Bitbucket return `null` when there is no pull
   request. It used to read any hook's `object_attributes` as a merge request: an Issue Hook gave
   the issue back as a `PullRequest`, and a Pipeline or Note Hook threw `Undefined array key`.
+- GitLab's `Tag Push Hook` counts as a push: `WebhookEvent::isPush()` is `true` and the webhook
+  route dispatches `PushReceived` for it, with `ref()` the tag's `refs/tags/<tag>`, as GitHub's
+  `push` and Bitbucket's `repo:push` already do for tag pushes.
 
 ## 1.1.2 - 2026-10-07
 

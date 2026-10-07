@@ -134,6 +134,25 @@ it('verifies gitlab token and bitbucket signature', function () {
     Event::assertDispatched(PushReceived::class, 2);
 });
 
+it('dispatches a push event for a gitlab tag push, as github and bitbucket do', function () {
+    // GitHub's `push` and Bitbucket's `repo:push` include tag pushes; GitLab sends them as a
+    // separate `Tag Push Hook`, which used to fire no PushReceived.
+    Event::fake();
+
+    $this->call('POST', '/git/webhooks/gitlab', [], [], [], [
+        'CONTENT_TYPE' => 'application/json',
+        'HTTP_X-Gitlab-Token' => 'top-secret',
+        'HTTP_X-Gitlab-Event' => 'Tag Push Hook',
+    ], (string) json_encode(webhookFixture('gitlab', 'tag_push')))->assertOk();
+
+    Event::assertDispatched(WebhookReceived::class);
+    Event::assertDispatched(PushReceived::class, fn (PushReceived $event): bool => $event->ref() === 'refs/tags/v1.0.0'
+        && $event->commits() === []
+        && $event->pusher()?->name === 'John Smith'
+        && $event->repository()?->path === 'jsmith/example');
+    Event::assertNotDispatched(PullRequestEventReceived::class);
+});
+
 it('rejects when no webhook secret is configured', function () {
     config()->set('git.providers.github.webhook_secret', null);
 
