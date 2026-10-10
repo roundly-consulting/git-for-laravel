@@ -933,6 +933,7 @@ final class ProviderFake implements ListsWebhookEvents, Provider
             owner: new Owner(id: 'fake', name: $data->owner ?? 'fake', avatar: null),
             createdAt: Carbon::now(),
             lastActivityAt: Carbon::now(),
+            private: $data->private,
         );
     }
 
@@ -1229,6 +1230,8 @@ final class ProviderFake implements ListsWebhookEvents, Provider
             createdAt: $pullRequest->createdAt,
             draft: $pullRequest->draft,
             raw: $pullRequest->raw,
+            headSha: $pullRequest->headSha,
+            headRepository: $pullRequest->headRepository,
         );
     }
 

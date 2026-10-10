@@ -13,7 +13,13 @@ final readonly class PullRequest extends Dto
 {
     use HasRawPayload;
 
-    /** @param array<string, mixed> $raw */
+    /**
+     * @param  array<string, mixed>  $raw
+     * @param  string|null  $headSha  the head commit — a 12-character short hash on Bitbucket
+     * @param  string|null  $headRepository  the repository the head branch lives in (`owner/name`): a
+     *                                       fork's for a pull request from a fork; null on GitLab
+     *                                       (it carries only a project id) and for a deleted fork
+     */
     public function __construct(
         public ProviderName $provider,
         public string $id,
@@ -28,5 +34,7 @@ final readonly class PullRequest extends Dto
         public CarbonInterface $createdAt,
         public bool $draft = false,
         public array $raw = [],
+        public ?string $headSha = null,
+        public ?string $headRepository = null,
     ) {}
 }

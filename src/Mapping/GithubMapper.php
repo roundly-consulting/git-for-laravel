@@ -55,6 +55,9 @@ final class GithubMapper implements ResourceMapper
             createdAt: $createdAt = Carbon::parse($raw['created_at']),
             lastActivityAt: ($raw['pushed_at'] ?? null) ? Carbon::parse($raw['pushed_at']) : $createdAt,
             raw: $raw,
+            private: is_bool($raw['private'] ?? null) ? $raw['private'] : null,
+            language: $this->string($raw['language'] ?? null),
+            webUrl: $this->string($raw['html_url'] ?? null),
         );
     }
 
@@ -326,6 +329,9 @@ final class GithubMapper implements ResourceMapper
             createdAt: Carbon::parse($raw['created_at']),
             draft: (bool) ($raw['draft'] ?? false),
             raw: $raw,
+            headSha: $this->string($raw['head']['sha'] ?? null),
+            // `head.repo` is null once the fork it came from is deleted.
+            headRepository: is_array($raw['head']['repo'] ?? null) ? $this->string($raw['head']['repo']['full_name'] ?? null) : null,
         );
     }
 

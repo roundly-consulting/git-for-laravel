@@ -42,6 +42,10 @@ final class GitlabMapper implements ResourceMapper
             createdAt: $createdAt = Carbon::parse($raw['created_at']),
             lastActivityAt: ($raw['last_activity_at'] ?? null) ? Carbon::parse($raw['last_activity_at']) : $createdAt,
             raw: $raw,
+            // `internal` (any signed-in user) counts as private, as GitHub counts it.
+            private: is_string($raw['visibility'] ?? null) ? $raw['visibility'] !== 'public' : null,
+            language: null,
+            webUrl: is_string($raw['web_url'] ?? null) && $raw['web_url'] !== '' ? $raw['web_url'] : null,
         );
     }
 
@@ -85,7 +89,18 @@ final class GitlabMapper implements ResourceMapper
             createdAt: Carbon::parse($raw['created_at']),
             draft: (bool) ($raw['draft'] ?? false),
             raw: $raw,
+            // REST carries `sha`; a merge request hook only `last_commit.id`.
+            headSha: $this->headSha($raw),
+            headRepository: null,
         );
+    }
+
+    /** @param array<string, mixed> $raw */
+    private function headSha(array $raw): ?string
+    {
+        $sha = $raw['sha'] ?? (is_array($raw['last_commit'] ?? null) ? ($raw['last_commit']['id'] ?? null) : null);
+
+        return is_string($sha) && $sha !== '' ? $sha : null;
     }
 
     /** @param array<string, mixed> $raw */

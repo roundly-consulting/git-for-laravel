@@ -185,6 +185,15 @@ final class GitlabWebhookMapper implements WebhookPayloadMapper
         $project['default_branch'] ??= '';
         $project['created_at'] ??= 'now';
 
+        // Hooks carry `visibility_level` (0 private, 10 internal, 20 public), REST `visibility`.
+        if (! isset($project['visibility']) && is_int($project['visibility_level'] ?? null)) {
+            $project['visibility'] = match ($project['visibility_level']) {
+                20 => 'public',
+                10 => 'internal',
+                default => 'private',
+            };
+        }
+
         if (! isset($project['last_activity_at']) && ($eventTime = $this->eventTime($payload)) !== null) {
             $project['last_activity_at'] = $eventTime;
         }

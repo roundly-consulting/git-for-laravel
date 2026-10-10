@@ -42,6 +42,9 @@ final class BitbucketMapper implements ResourceMapper
             createdAt: $createdAt = Carbon::parse($raw['created_on']),
             lastActivityAt: ($raw['updated_on'] ?? null) ? Carbon::parse($raw['updated_on']) : $createdAt,
             raw: $raw,
+            private: is_bool($raw['is_private'] ?? null) ? $raw['is_private'] : null,
+            language: $this->string($raw['language'] ?? null),
+            webUrl: $this->string($raw['links']['html']['href'] ?? null),
         );
     }
 
@@ -81,6 +84,9 @@ final class BitbucketMapper implements ResourceMapper
             createdAt: Carbon::parse($raw['created_on']),
             draft: (bool) ($raw['draft'] ?? false),
             raw: $raw,
+            // Bitbucket names the head commit by its 12-character short hash.
+            headSha: $this->string($raw['source']['commit']['hash'] ?? null),
+            headRepository: $this->string($raw['source']['repository']['full_name'] ?? null),
         );
     }
 
@@ -133,6 +139,12 @@ final class BitbucketMapper implements ResourceMapper
             url: $raw['links']['html']['href'] ?? null,
             raw: $raw,
         );
+    }
+
+    /** A non-empty string, or null — Bitbucket sends `''` for an unset language. */
+    private function string(mixed $value): ?string
+    {
+        return is_string($value) && $value !== '' ? $value : null;
     }
 
     /** @param array<string, mixed> $raw */

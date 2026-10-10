@@ -57,6 +57,12 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   `assertWorkflowDispatched($workflow, ?$ref, ?$inputs, ?$repository)` (inputs exact),
   `assertNoWorkflowDispatched()`, `assertWorkflowRunCancelled($runId, ?$repository)` and
   `assertNoWorkflowRunCancelled()`.
+- `PullRequest::$headSha` and `$headRepository` (`owner/name` of the head branch's repository —
+  a fork's for a pull request from a fork), and `Repository::$private`, `$language` and
+  `$webUrl`, all nullable and appended after `raw`. They reach webhook events too. Per forge:
+  Bitbucket's `headSha` is its 12-character short hash; GitLab has no `headRepository` (only a
+  project id) and no `language`, and counts `internal` as private (from `visibility`, or a hook's
+  `visibility_level`); a deleted GitHub fork has no `headRepository`.
 
 ### Changed
 
@@ -64,9 +70,13 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   `workflowRuns()`, `workflowRun()`, `workflowJobs()` and `cancelWorkflowRun()`. A class
   implementing `Provider` directly must add them; a driver extending `BaseProvider` (or one of
   the three drivers) changes nothing.
-- `Page::toArray()` gains the `total` key, and `Comparison::toArray()` gains the `status`,
-  `totalCommits` and `commits` keys; the fake's default comparison (nothing seeded) is now
-  `status: identical`, `totalCommits: 0`.
+- `toArray()` / JSON gain keys: `Page` `total`; `Comparison` `status`, `totalCommits` and
+  `commits`; `PullRequest` `headSha` and `headRepository`; `Repository` `private`, `language` and
+  `webUrl`. The fake's default comparison (nothing seeded) is now `status: identical`,
+  `totalCommits: 0`, and the repository `createRepository()` synthesizes carries `private`.
+- GitLab compare `commits` are now mapped through the commit mapper, so a compare answer whose
+  commits lack GitLab's usual commit fields (`message`, `author_name`, `author_email`) now fails
+  to map instead of being only counted.
 
 ## 1.1.4 - 2026-10-07
 
