@@ -32,6 +32,7 @@ use RoundlyConsulting\Git\Dto\Credentials\Credentials;
 use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
 use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
+use RoundlyConsulting\Git\Dto\DispatchedWorkflow;
 use RoundlyConsulting\Git\Dto\FeatureInfo;
 use RoundlyConsulting\Git\Dto\FileContent;
 use RoundlyConsulting\Git\Dto\Input\NewBranch;
@@ -43,6 +44,7 @@ use RoundlyConsulting\Git\Dto\Input\NewRepository;
 use RoundlyConsulting\Git\Dto\Input\NewReview;
 use RoundlyConsulting\Git\Dto\Input\NewTag;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
+use RoundlyConsulting\Git\Dto\Input\NewWorkflowDispatch;
 use RoundlyConsulting\Git\Dto\Input\UpdatedFile;
 use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Issue;
@@ -56,6 +58,7 @@ use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Dto\WorkflowRun;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
@@ -68,6 +71,8 @@ use RoundlyConsulting\Git\Http\RateLimitStatusParser;
 use RoundlyConsulting\Git\Interfaces\Provider;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
+use RoundlyConsulting\Git\Query\WorkflowJobQuery;
+use RoundlyConsulting\Git\Query\WorkflowRunQuery;
 use RoundlyConsulting\Git\Support\Settings;
 use RoundlyConsulting\PackageToolkit\Exceptions\InvalidConfigurationException;
 use RoundlyConsulting\PackageToolkit\Support\Config;
@@ -449,6 +454,31 @@ abstract class BaseProvider implements ListsWebhookEvents, Provider
     }
 
     public function createRepository(NewRepository $data): Repository
+    {
+        $this->featureNotSupported();
+    }
+
+    public function dispatchWorkflow(string $path, NewWorkflowDispatch $data): DispatchedWorkflow
+    {
+        $this->featureNotSupported();
+    }
+
+    public function workflowRuns(string $path, ?string $workflow = null): WorkflowRunQuery
+    {
+        $this->featureNotSupported();
+    }
+
+    public function workflowRun(string $path, string $id): WorkflowRun
+    {
+        $this->featureNotSupported();
+    }
+
+    public function workflowJobs(string $path, string $runId): WorkflowJobQuery
+    {
+        $this->featureNotSupported();
+    }
+
+    public function cancelWorkflowRun(string $path, string $runId): bool
     {
         $this->featureNotSupported();
     }

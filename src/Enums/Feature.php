@@ -50,6 +50,11 @@ enum Feature: string
     case ListInstallations = 'installations';
     case ListInstallationRepositories = 'installation_repositories';
     case RepositoryActivity = 'activity';
+    case DispatchWorkflow = 'dispatch_workflow';
+    case ListWorkflowRuns = 'workflow_runs';
+    case FindWorkflowRun = 'workflow_run';
+    case ListWorkflowJobs = 'workflow_jobs';
+    case CancelWorkflowRun = 'cancel_workflow_run';
 
     public function description(): string
     {
@@ -93,6 +98,11 @@ enum Feature: string
             self::ListInstallations => 'List every account this app is installed on (authenticated as the app itself).',
             self::ListInstallationRepositories => 'List the repositories one installation can reach.',
             self::RepositoryActivity => 'List the pushes, force pushes, branch creations and deletions, and merges on a repository, newest first.',
+            self::DispatchWorkflow => 'Start a CI workflow on a ref, with inputs.',
+            self::ListWorkflowRuns => 'List the CI workflow runs of a repository or of one workflow, newest first.',
+            self::FindWorkflowRun => 'Get a single CI workflow run by id.',
+            self::ListWorkflowJobs => 'List the jobs (and their steps) of a CI workflow run.',
+            self::CancelWorkflowRun => 'Cancel a CI workflow run.',
         };
     }
 

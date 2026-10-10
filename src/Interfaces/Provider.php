@@ -13,6 +13,7 @@ use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Comparison;
 use RoundlyConsulting\Git\Dto\Contributor;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
+use RoundlyConsulting\Git\Dto\DispatchedWorkflow;
 use RoundlyConsulting\Git\Dto\FeatureInfo;
 use RoundlyConsulting\Git\Dto\FileContent;
 use RoundlyConsulting\Git\Dto\Input\NewBranch;
@@ -24,6 +25,7 @@ use RoundlyConsulting\Git\Dto\Input\NewRepository;
 use RoundlyConsulting\Git\Dto\Input\NewReview;
 use RoundlyConsulting\Git\Dto\Input\NewTag;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
+use RoundlyConsulting\Git\Dto\Input\NewWorkflowDispatch;
 use RoundlyConsulting\Git\Dto\Input\UpdatedFile;
 use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Issue;
@@ -37,12 +39,15 @@ use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Dto\WorkflowRun;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Handles\InstallationsHandle;
 use RoundlyConsulting\Git\Handles\RepositoryHandle;
 use RoundlyConsulting\Git\Query\CommitQuery;
+use RoundlyConsulting\Git\Query\WorkflowJobQuery;
+use RoundlyConsulting\Git\Query\WorkflowRunQuery;
 
 /**
  * Everything a forge driver answers.
@@ -178,6 +183,23 @@ interface Provider
 
     /** @return Page<Repository> */
     public function searchRepositories(string $query, int $perPage = 30): Page;
+
+    /**
+     * Start a CI workflow on a ref. Never retried — a retry after a lost answer would start a
+     * second run. `runId` is set when the forge says which run it started.
+     */
+    public function dispatchWorkflow(string $path, NewWorkflowDispatch $data): DispatchedWorkflow;
+
+    /** A chainable query over a repository's CI runs — of one workflow, or of all of them (`null`). */
+    public function workflowRuns(string $path, ?string $workflow = null): WorkflowRunQuery;
+
+    public function workflowRun(string $path, string $id): WorkflowRun;
+
+    /** A chainable query over one run's jobs — its latest attempt unless told otherwise. */
+    public function workflowJobs(string $path, string $runId): WorkflowJobQuery;
+
+    /** `true` when the forge accepted the cancel, `false` when the run had already finished. */
+    public function cancelWorkflowRun(string $path, string $runId): bool;
 
     public function createRepository(NewRepository $data): Repository;
 

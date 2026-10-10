@@ -215,6 +215,15 @@ final readonly class RepositoryHandle
         return $this->provider->languages($this->path);
     }
 
+    /**
+     * This repository's CI workflows (GitHub Actions): dispatch, runs, one run, jobs, cancel.
+     * Forges without Actions answer `FeatureNotSupportedException`.
+     */
+    public function actions(): ActionsHandle
+    {
+        return new ActionsHandle($this->provider, $this->path);
+    }
+
     /** Register, list and delete this repository's webhooks. */
     public function webhooks(): Webhooks
     {

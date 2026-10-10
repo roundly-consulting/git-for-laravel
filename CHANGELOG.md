@@ -39,12 +39,22 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   which never counts as completed or successful, and a run or job payload without an id throws
   `InvalidArgumentException` naming the field instead of making one up.
 - `Page::$total`: how many items the whole list holds, when the forge says (`null` otherwise).
+- `repo(...)->actions()` drives GitHub Actions (`Handles\ActionsHandle`): `dispatch($workflow,
+  $ref, $inputs)` starts a workflow and returns a `DispatchedWorkflow` whose `runId` names the
+  run GitHub started (github.com and GHE.com; GitHub Enterprise Server answers without it, so
+  find the run with `runs()` from `dispatchedAt`); `runs(?$workflow)` queries runs newest first
+  with `total` from GitHub's count; `run($id)`; `jobs($runId)` (latest attempt by default);
+  `cancel($runId)` is `true` when GitHub accepted it and `false` when the run had already
+  finished (`409`). A dispatch is never retried, every workflow and run id is checked before a
+  request, and dispatch and cancel need a credential. GitHub only (`Feature::DispatchWorkflow`,
+  `ListWorkflowRuns`, `FindWorkflowRun`, `ListWorkflowJobs`, `CancelWorkflowRun`).
 
 ### Changed
 
-- `Interfaces\Provider` gained `branch()` and `activity()`. A class implementing `Provider`
-  directly must add them; a driver extending `BaseProvider` (or one of the three drivers)
-  changes nothing.
+- `Interfaces\Provider` gained seven methods: `branch()`, `activity()`, `dispatchWorkflow()`,
+  `workflowRuns()`, `workflowRun()`, `workflowJobs()` and `cancelWorkflowRun()`. A class
+  implementing `Provider` directly must add them; a driver extending `BaseProvider` (or one of
+  the three drivers) changes nothing.
 - `Page::toArray()` gains the `total` key, and `Comparison::toArray()` gains the `status`,
   `totalCommits` and `commits` keys; the fake's default comparison (nothing seeded) is now
   `status: identical`, `totalCommits: 0`.

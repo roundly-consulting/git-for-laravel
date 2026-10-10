@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Providers;
 
+use Closure;
 use GuzzleHttp\Psr7\Response as GuzzleResponse;
 use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
@@ -22,6 +23,7 @@ use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
 use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
 use RoundlyConsulting\Git\Dto\Credentials\OauthToken;
 use RoundlyConsulting\Git\Dto\Credentials\Token;
+use RoundlyConsulting\Git\Dto\DispatchedWorkflow;
 use RoundlyConsulting\Git\Dto\FileContent;
 use RoundlyConsulting\Git\Dto\Input\InstallationTokenScope;
 use RoundlyConsulting\Git\Dto\Input\NewBranch;
@@ -34,6 +36,7 @@ use RoundlyConsulting\Git\Dto\Input\NewReview;
 use RoundlyConsulting\Git\Dto\Input\NewReviewComment;
 use RoundlyConsulting\Git\Dto\Input\NewTag;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
+use RoundlyConsulting\Git\Dto\Input\NewWorkflowDispatch;
 use RoundlyConsulting\Git\Dto\Input\UpdatedFile;
 use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Issue;
@@ -47,6 +50,8 @@ use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Dto\WorkflowJob;
+use RoundlyConsulting\Git\Dto\WorkflowRun;
 use RoundlyConsulting\Git\Enums\ComparisonStatus;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\MergeMethod;
@@ -56,6 +61,8 @@ use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Mapping\GithubMapper;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
+use RoundlyConsulting\Git\Query\WorkflowJobQuery;
+use RoundlyConsulting\Git\Query\WorkflowRunQuery;
 use RoundlyConsulting\Git\Support\Settings;
 use UnexpectedValueException;
 
@@ -683,6 +690,180 @@ class Github extends BaseProvider
     }
 
     /**
+     * Start a workflow (`workflow_dispatch`).
+     *
+     * GitHub answers `204` unless asked for the run it started: `return_run_details: true`
+     * (since 2026-02-19) makes it `200` with `workflow_run_id`, `run_url` and `html_url`. It is
+     * sent to github.com and GHE.com only — GitHub Enterprise Server (`…/api/v3`) has not
+     * documented it, so there the run id stays null and the caller finds the run with a
+     * `workflowRuns()` query. `dispatchedAt` is read BEFORE the request leaves, so a query
+     * from it cannot miss the run. Never retried: a lost answer followed by a retry would
+     * start a second build.
+     */
+    public function dispatchWorkflow(string $path, NewWorkflowDispatch $data): DispatchedWorkflow
+    {
+        $this->guardSupported(Feature::DispatchWorkflow);
+        $this->guardAuthenticated();
+
+        $url = $this->repos($path).'/actions/workflows/'.rawurlencode(PathGuard::workflow($data->workflow)).'/dispatches';
+        $dispatchedAt = Carbon::now();
+
+        $response = $this->send('POST', $url, array_filter([
+            'ref' => $data->ref,
+            'inputs' => $data->inputs,
+            'return_run_details' => $this->isEnterpriseServer() ? null : true,
+        ], fn (mixed $value): bool => $value !== null && $value !== []));
+
+        /** @var array<string, mixed> $details */
+        $details = $response->status() === 200 && is_array($response->json()) ? $response->json() : [];
+        $runId = $details['workflow_run_id'] ?? null;
+        $apiUrl = $details['run_url'] ?? null;
+        $htmlUrl = $details['html_url'] ?? null;
+
+        return new DispatchedWorkflow(
+            provider: $this->providerName(),
+            workflow: $data->workflow,
+            ref: $data->ref,
+            runId: is_int($runId) || (is_string($runId) && ctype_digit($runId)) ? (string) $runId : null,
+            apiUrl: is_string($apiUrl) ? $apiUrl : null,
+            url: is_string($htmlUrl) ? $htmlUrl : null,
+            dispatchedAt: $dispatchedAt,
+            raw: $details,
+        );
+    }
+
+    /**
+     * Runs, newest first — of one workflow (file name or id), or of the whole repository.
+     *
+     * The page's `total` is `total_count`. GitHub stops a filtered search at 1,000 results,
+     * so a lazy walk ends there and `total` tells the caller what was left unread.
+     */
+    public function workflowRuns(string $path, ?string $workflow = null): WorkflowRunQuery
+    {
+        $this->guardSupported(Feature::ListWorkflowRuns);
+
+        $url = $workflow === null
+            ? $this->repos($path).'/actions/runs'
+            : $this->repos($path).'/actions/workflows/'.rawurlencode(PathGuard::workflow($workflow)).'/runs';
+
+        return new WorkflowRunQuery(fn (array $filters, int $page, int $perPage): Page => $this->envelopePage(
+            $url,
+            $this->workflowRunFilters($filters),
+            $page,
+            $perPage,
+            'workflow_runs',
+            fn (array $run): WorkflowRun => $this->mapper()->workflowRun($run),
+        ));
+    }
+
+    public function workflowRun(string $path, string $id): WorkflowRun
+    {
+        $this->guardSupported(Feature::FindWorkflowRun);
+
+        return $this->mapper()->workflowRun($this->get($this->repos($path).'/actions/runs/'.PathGuard::numeric('workflow run id', $id))->json());
+    }
+
+    /**
+     * One run's jobs: its latest attempt by default, `filter=all` for every attempt, or the
+     * attempts endpoint for one.
+     */
+    public function workflowJobs(string $path, string $runId): WorkflowJobQuery
+    {
+        $this->guardSupported(Feature::ListWorkflowJobs);
+
+        $run = $this->repos($path).'/actions/runs/'.PathGuard::numeric('workflow run id', $runId);
+
+        return new WorkflowJobQuery(fn (array $filters, int $page, int $perPage): Page => $this->envelopePage(
+            isset($filters['attempt']) ? $run.'/attempts/'.(int) $filters['attempt'].'/jobs' : $run.'/jobs',
+            isset($filters['filter']) ? ['filter' => $filters['filter']] : [],
+            $page,
+            $perPage,
+            'jobs',
+            fn (array $job): WorkflowJob => $this->mapper()->workflowJob($job),
+        ));
+    }
+
+    /**
+     * Ask GitHub to cancel a run: `202` (accepted — GitHub cancels asynchronously) is
+     * `true`, `409` (the run already finished) is `false`, anything else throws.
+     */
+    public function cancelWorkflowRun(string $path, string $runId): bool
+    {
+        $this->guardSupported(Feature::CancelWorkflowRun);
+        $this->guardAuthenticated();
+
+        try {
+            $this->send('POST', $this->repos($path).'/actions/runs/'.PathGuard::numeric('workflow run id', $runId).'/cancel');
+        } catch (RequestException $exception) {
+            if ($exception->response->status() === 409) {
+                return false;
+            }
+
+            throw $exception;
+        }
+
+        return true;
+    }
+
+    /**
+     * A run query's filters as GitHub reads them. Both ends of the creation range become
+     * `a..b`, one end `>=a` or `<=b`.
+     *
+     * @param  array<string, scalar>  $filters
+     * @return array<string, scalar>
+     */
+    private function workflowRunFilters(array $filters): array
+    {
+        $after = $filters['createdAfter'] ?? null;
+        $before = $filters['createdBefore'] ?? null;
+
+        return array_filter([
+            'branch' => $filters['branch'] ?? null,
+            'event' => $filters['event'] ?? null,
+            'status' => $filters['status'] ?? null,
+            'actor' => $filters['actor'] ?? null,
+            'head_sha' => $filters['headSha'] ?? null,
+            'created' => match (true) {
+                $after !== null && $before !== null => "{$after}..{$before}",
+                $after !== null => ">={$after}",
+                $before !== null => "<={$before}",
+                default => null,
+            },
+            'exclude_pull_requests' => ($filters['excludePullRequests'] ?? false) === true ? 'true' : null,
+        ], fn (mixed $value): bool => $value !== null);
+    }
+
+    /**
+     * One page of an enveloped list (`{total_count, <key>: [...]}`), with its total.
+     *
+     * Kept here rather than as a parameter of the shared `paginate()`: a host driver that
+     * overrides `paginate()` would fatal on a new argument.
+     *
+     * @template T
+     *
+     * @param  array<string, mixed>  $query
+     * @param  Closure(array<string, mixed>): T  $map
+     * @return Page<T>
+     */
+    private function envelopePage(string $url, array $query, int $page, int $perPage, string $key, Closure $map): Page
+    {
+        $perPage = $this->pageSize($perPage);
+        $response = $this->get($url, array_merge($query, $this->pageParameters($page, $perPage)));
+
+        /** @var list<T> $items */
+        $items = $response->collect($key)->map(fn (array $item): mixed => $map($item))->values()->all();
+        $total = $response->json('total_count');
+
+        return new Page(
+            items: $items,
+            perPage: $perPage,
+            page: $page,
+            hasMore: $this->hasMorePages($response, count($items), $perPage),
+            total: is_numeric($total) ? (int) $total : null,
+        );
+    }
+
+    /**
      * Create a repository, by one of three routes chosen from the input.
      *
      * The route matters beyond where the repository lands. `/user/repos` and
@@ -1269,6 +1450,11 @@ class Github extends BaseProvider
             Feature::ListInstallations,
             Feature::ListInstallationRepositories,
             Feature::RepositoryActivity,
+            Feature::DispatchWorkflow,
+            Feature::ListWorkflowRuns,
+            Feature::FindWorkflowRun,
+            Feature::ListWorkflowJobs,
+            Feature::CancelWorkflowRun,
         ];
     }
 

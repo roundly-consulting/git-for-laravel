@@ -22,6 +22,7 @@ use RoundlyConsulting\Git\Dto\Contributor;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
 use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
 use RoundlyConsulting\Git\Dto\Credentials\GithubAppToken;
+use RoundlyConsulting\Git\Dto\DispatchedWorkflow;
 use RoundlyConsulting\Git\Dto\FeatureInfo;
 use RoundlyConsulting\Git\Dto\FileContent;
 use RoundlyConsulting\Git\Dto\Input\NewBranch;
@@ -33,6 +34,7 @@ use RoundlyConsulting\Git\Dto\Input\NewRepository;
 use RoundlyConsulting\Git\Dto\Input\NewReview;
 use RoundlyConsulting\Git\Dto\Input\NewTag;
 use RoundlyConsulting\Git\Dto\Input\NewWebhook;
+use RoundlyConsulting\Git\Dto\Input\NewWorkflowDispatch;
 use RoundlyConsulting\Git\Dto\Input\UpdatedFile;
 use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Issue;
@@ -47,6 +49,7 @@ use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Dto\WorkflowRun;
 use RoundlyConsulting\Git\Enums\ComparisonStatus;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\MergeMethod;
@@ -59,6 +62,8 @@ use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Interfaces\Provider;
 use RoundlyConsulting\Git\Providers\BaseProvider;
 use RoundlyConsulting\Git\Query\CommitQuery;
+use RoundlyConsulting\Git\Query\WorkflowJobQuery;
+use RoundlyConsulting\Git\Query\WorkflowRunQuery;
 use RoundlyConsulting\Git\Support\Settings;
 use RuntimeException;
 
@@ -873,6 +878,75 @@ final class ProviderFake implements ListsWebhookEvents, Provider
             createdAt: Carbon::now(),
             lastActivityAt: Carbon::now(),
         );
+    }
+
+    public function dispatchWorkflow(string $path, NewWorkflowDispatch $data): DispatchedWorkflow
+    {
+        $this->ensureSupported(Feature::DispatchWorkflow);
+        $this->guardAuthenticated();
+
+        $dispatchedAt = Carbon::now();
+
+        $this->record('dispatchWorkflow', [$path, $data]);
+
+        return new DispatchedWorkflow(
+            provider: $this->name,
+            workflow: $data->workflow,
+            ref: $data->ref,
+            runId: null,
+            apiUrl: null,
+            url: null,
+            dispatchedAt: $dispatchedAt,
+        );
+    }
+
+    public function workflowRuns(string $path, ?string $workflow = null): WorkflowRunQuery
+    {
+        $this->ensureSupported(Feature::ListWorkflowRuns);
+
+        $this->record('workflowRuns', [$path, $workflow]);
+
+        return new WorkflowRunQuery(function (array $filters, int $page, int $perPage): Page {
+            $size = $this->pageSize($perPage);
+
+            $this->record('workflowRuns.get', [$filters, $page, $perPage]);
+
+            return $this->page([], $size, $page);
+        });
+    }
+
+    public function workflowRun(string $path, string $id): WorkflowRun
+    {
+        $this->ensureSupported(Feature::FindWorkflowRun);
+
+        $this->record('workflowRun', [$path, $id]);
+
+        throw $this->unseeded("workflow run [{$id}]", 'seedWorkflowRun()');
+    }
+
+    public function workflowJobs(string $path, string $runId): WorkflowJobQuery
+    {
+        $this->ensureSupported(Feature::ListWorkflowJobs);
+
+        $this->record('workflowJobs', [$path, $runId]);
+
+        return new WorkflowJobQuery(function (array $filters, int $page, int $perPage): Page {
+            $size = $this->pageSize($perPage);
+
+            $this->record('workflowJobs.get', [$filters, $page, $perPage]);
+
+            return $this->page([], $size, $page);
+        });
+    }
+
+    public function cancelWorkflowRun(string $path, string $runId): bool
+    {
+        $this->ensureSupported(Feature::CancelWorkflowRun);
+        $this->guardAuthenticated();
+
+        $this->record('cancelWorkflowRun', [$path, $runId]);
+
+        return true;
     }
 
     public function createBranch(string $path, NewBranch $data): string
