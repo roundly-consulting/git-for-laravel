@@ -21,6 +21,8 @@ final readonly class Page extends Dto implements Countable, IteratorAggregate
 {
     /**
      * @param  list<T>  $items
+     * @param  string|null  $nextCursor  for a cursor-paged list: hand it back for the next page
+     * @param  int|null  $total  how many items the whole list holds, when the forge says (null otherwise)
      */
     public function __construct(
         public array $items,
@@ -28,6 +30,7 @@ final readonly class Page extends Dto implements Countable, IteratorAggregate
         public int $page,
         public bool $hasMore,
         public ?string $nextCursor = null,
+        public ?int $total = null,
     ) {}
 
     /** @return Collection<int, T> */

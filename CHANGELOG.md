@@ -29,15 +29,25 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   (a creation or deletion) is `null`, a type GitHub adds later is `ActivityType::Unknown`, and a
   `403` / `404` stays a `RequestException`. GitHub only (`Feature::RepositoryActivity`); the
   fake pages `seedActivity()` filtered by ref.
+- GitHub Actions types: `Dto\WorkflowRun` (with `isCompleted()`, `isActive()`, `succeeded()`,
+  `wasCancelled()`), `Dto\WorkflowJob` (with its `steps` as `Dto\JobStep`, `succeeded()` and
+  `step($name)`), `Dto\DispatchedWorkflow`, `Dto\Input\NewWorkflowDispatch`, the
+  `Enums\WorkflowStatus` and `Enums\WorkflowConclusion` enums, and the chainable
+  `Query\WorkflowRunQuery` (`branch()`, `event()`, `status()`, `actor()`, `headSha()`,
+  `createdAfter()`, `createdBefore()`, `excludePullRequests()`) and `Query\WorkflowJobQuery`
+  (`allAttempts()`, `attempt($n)`). A status or conclusion GitHub adds later reads as `Unknown`,
+  which never counts as completed or successful, and a run or job payload without an id throws
+  `InvalidArgumentException` naming the field instead of making one up.
+- `Page::$total`: how many items the whole list holds, when the forge says (`null` otherwise).
 
 ### Changed
 
 - `Interfaces\Provider` gained `branch()` and `activity()`. A class implementing `Provider`
   directly must add them; a driver extending `BaseProvider` (or one of the three drivers)
   changes nothing.
-
-- `Comparison::toArray()` gains the `status`, `totalCommits` and `commits` keys, and the fake's
-  default comparison (nothing seeded) is now `status: identical`, `totalCommits: 0`.
+- `Page::toArray()` gains the `total` key, and `Comparison::toArray()` gains the `status`,
+  `totalCommits` and `commits` keys; the fake's default comparison (nothing seeded) is now
+  `status: identical`, `totalCommits: 0`.
 
 ## 1.1.4 - 2026-10-07
 

@@ -82,6 +82,25 @@ final class PathGuard
         return $value;
     }
 
+    /**
+     * A GitHub Actions workflow: its numeric id, or ONE file name ending `.yml` / `.yaml` —
+     * never a path, which would address another endpoint once interpolated.
+     */
+    public static function workflow(string $workflow): string
+    {
+        if (ctype_digit($workflow)) {
+            return $workflow;
+        }
+
+        if (preg_match('/\.ya?ml$/', $workflow) !== 1
+            || ! self::segmentsAreSafe($workflow, rejectWhitespace: true, refused: self::REFUSED_IN_REPOSITORY)
+            || str_contains(self::decoded($workflow), '/')) {
+            throw OutOfScopeException::identifier('workflow', $workflow);
+        }
+
+        return $workflow;
+    }
+
     /** A forge-issued numeric id. */
     public static function numeric(string $label, string $value): string
     {

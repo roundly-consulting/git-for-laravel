@@ -11,6 +11,7 @@ use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Installation;
 use RoundlyConsulting\Git\Dto\Issue;
+use RoundlyConsulting\Git\Dto\JobStep;
 use RoundlyConsulting\Git\Dto\Owner;
 use RoundlyConsulting\Git\Dto\PullRequest;
 use RoundlyConsulting\Git\Dto\PullRequestReview;
@@ -18,10 +19,14 @@ use RoundlyConsulting\Git\Dto\PullRequestReviewComment;
 use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
+use RoundlyConsulting\Git\Dto\WorkflowJob;
+use RoundlyConsulting\Git\Dto\WorkflowRun;
 use RoundlyConsulting\Git\Enums\ActivityType;
 use RoundlyConsulting\Git\Enums\DiffSide;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Enums\ResourceState;
+use RoundlyConsulting\Git\Enums\WorkflowConclusion;
+use RoundlyConsulting\Git\Enums\WorkflowStatus;
 use Throwable;
 
 final class GithubMapper implements ResourceMapper
@@ -134,6 +139,94 @@ final class GithubMapper implements ResourceMapper
                 ?? throw new InvalidArgumentException('A GitHub activity payload carried no usable [timestamp].'),
             raw: $raw,
         );
+    }
+
+    /**
+     * A GitHub Actions workflow run.
+     *
+     * GitHub-only, so it is NOT on the shared ResourceMapper contract. Status and conclusion
+     * are typed through `fromWire()`: a value GitHub adds later reads as Unknown, a null
+     * status as Unknown, and a null conclusion stays null.
+     *
+     * @param  array<string, mixed>  $raw
+     *
+     * @throws InvalidArgumentException when the payload carries no usable id, workflow id or creation time
+     */
+    public function workflowRun(array $raw): WorkflowRun
+    {
+        $createdAt = $this->timestamp($raw['created_at'] ?? null)
+            ?? throw new InvalidArgumentException('A GitHub workflow run payload carried no usable [created_at].');
+        $headRepository = is_array($raw['head_repository'] ?? null) ? ($raw['head_repository']['full_name'] ?? null) : null;
+
+        return new WorkflowRun(
+            provider: $this->provider(),
+            id: $this->requiredId($raw, 'id', 'workflow run'),
+            workflowId: $this->requiredId($raw, 'workflow_id', 'workflow run'),
+            displayTitle: $this->string($raw['display_title'] ?? null) ?? '',
+            status: WorkflowStatus::fromWire($raw['status'] ?? null),
+            event: $this->string($raw['event'] ?? null) ?? '',
+            path: $this->string($raw['path'] ?? null) ?? '',
+            headSha: $this->string($raw['head_sha'] ?? null) ?? '',
+            createdAt: $createdAt,
+            updatedAt: $this->timestamp($raw['updated_at'] ?? null) ?? $createdAt,
+            conclusion: WorkflowConclusion::fromWire($raw['conclusion'] ?? null),
+            name: $this->string($raw['name'] ?? null),
+            headBranch: $this->string($raw['head_branch'] ?? null),
+            headRepository: $this->string($headRepository),
+            runNumber: is_numeric($raw['run_number'] ?? null) ? (int) $raw['run_number'] : 1,
+            runAttempt: is_numeric($raw['run_attempt'] ?? null) ? (int) $raw['run_attempt'] : 1,
+            actor: $this->owner($raw['actor'] ?? null),
+            triggeringActor: $this->owner($raw['triggering_actor'] ?? null),
+            url: $this->string($raw['html_url'] ?? null),
+            runStartedAt: $this->timestamp($raw['run_started_at'] ?? null),
+            raw: $raw,
+        );
+    }
+
+    /**
+     * One job of a GitHub Actions run, with its steps.
+     *
+     * @param  array<string, mixed>  $raw
+     *
+     * @throws InvalidArgumentException when the payload carries no usable id or run id
+     */
+    public function workflowJob(array $raw): WorkflowJob
+    {
+        $labels = array_values(array_filter(is_array($raw['labels'] ?? null) ? $raw['labels'] : [], is_string(...)));
+        $steps = array_values(array_filter(is_array($raw['steps'] ?? null) ? $raw['steps'] : [], is_array(...)));
+
+        return new WorkflowJob(
+            provider: $this->provider(),
+            id: $this->requiredId($raw, 'id', 'workflow job'),
+            runId: $this->requiredId($raw, 'run_id', 'workflow job'),
+            name: $this->string($raw['name'] ?? null) ?? '',
+            status: WorkflowStatus::fromWire($raw['status'] ?? null),
+            headSha: $this->string($raw['head_sha'] ?? null) ?? '',
+            conclusion: WorkflowConclusion::fromWire($raw['conclusion'] ?? null),
+            runAttempt: is_numeric($raw['run_attempt'] ?? null) ? (int) $raw['run_attempt'] : 1,
+            workflowName: $this->string($raw['workflow_name'] ?? null),
+            headBranch: $this->string($raw['head_branch'] ?? null),
+            startedAt: $this->timestamp($raw['started_at'] ?? null),
+            completedAt: $this->timestamp($raw['completed_at'] ?? null),
+            runnerName: $this->string($raw['runner_name'] ?? null),
+            labels: $labels,
+            url: $this->string($raw['html_url'] ?? null),
+            steps: array_map(fn (array $step): JobStep => new JobStep(
+                number: is_numeric($step['number'] ?? null) ? (int) $step['number'] : 0,
+                name: $this->string($step['name'] ?? null) ?? '',
+                status: WorkflowStatus::fromWire($step['status'] ?? null),
+                conclusion: WorkflowConclusion::fromWire($step['conclusion'] ?? null),
+                startedAt: $this->timestamp($step['started_at'] ?? null),
+                completedAt: $this->timestamp($step['completed_at'] ?? null),
+            ), $steps),
+            raw: $raw,
+        );
+    }
+
+    /** A non-empty string, or null. */
+    private function string(mixed $value): ?string
+    {
+        return is_string($value) && $value !== '' ? $value : null;
     }
 
     /**
