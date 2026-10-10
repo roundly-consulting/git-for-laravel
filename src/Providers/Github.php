@@ -10,6 +10,7 @@ use Illuminate\Http\Client\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\LazyCollection;
 use RoundlyConsulting\Git\Dto\Author;
+use RoundlyConsulting\Git\Dto\Branch;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Comparison;
@@ -55,6 +56,7 @@ use RoundlyConsulting\Git\Mapping\GithubMapper;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
 use RoundlyConsulting\Git\Support\Settings;
+use UnexpectedValueException;
 
 class Github extends BaseProvider
 {
@@ -246,6 +248,37 @@ class Github extends BaseProvider
             perPage: $perPage,
             map: fn (array $item): string => $item['name'],
         );
+    }
+
+    /**
+     * One branch head, by its exact name.
+     *
+     * Read from `/git/ref/heads/{branch}`, which answers `404` for a tag, a sha or a mere
+     * prefix. Not `/branches/{branch}`: that one follows a RENAMED branch (`301`) to another
+     * head. The answer is checked too — exactly `refs/heads/<name>`, pointing at a commit by
+     * its full sha — so nothing else is ever handed back as this branch.
+     *
+     * @throws RequestException when there is no such branch
+     * @throws UnexpectedValueException when GitHub answers anything but that branch's head
+     */
+    public function branch(string $path, string $name): Branch
+    {
+        $this->guardSupported(Feature::FindBranch);
+
+        $ref = $this->get($this->repos($path).'/git/ref/heads/'.$this->refSegments('branch', $name))->json();
+        $object = is_array($ref) && is_array($ref['object'] ?? null) ? $ref['object'] : [];
+        $sha = $object['sha'] ?? null;
+
+        if (! is_array($ref)
+            || array_is_list($ref)
+            || ($ref['ref'] ?? null) !== "refs/heads/{$name}"
+            || ($object['type'] ?? null) !== 'commit'
+            || ! is_string($sha)
+            || preg_match('/^[0-9a-f]{40}$/', $sha) !== 1) {
+            throw new UnexpectedValueException("GitHub did not answer the head of branch [{$name}] (expected refs/heads/{$name} pointing at a commit).");
+        }
+
+        return new Branch(provider: $this->providerName(), name: $name, sha: $sha, raw: $ref);
     }
 
     public function commits(string $path): CommitQuery
@@ -1144,6 +1177,7 @@ class Github extends BaseProvider
             Feature::ListCommits,
             Feature::FindCommit,
             Feature::ListRepositoryBranches,
+            Feature::FindBranch,
             Feature::ListPullRequests,
             Feature::FindPullRequest,
             Feature::ListIssues,

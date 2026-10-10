@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Git\Interfaces;
 
 use Illuminate\Support\LazyCollection;
 use RoundlyConsulting\Git\Batch\Batch;
+use RoundlyConsulting\Git\Dto\Branch;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Comparison;
@@ -124,6 +125,12 @@ interface Provider
 
     /** @return Page<string> */
     public function branches(string $path, int $perPage = 30): Page;
+
+    /**
+     * One branch head, by its EXACT name — a tag, a sha or a prefix of a branch name is a
+     * `404` `RequestException`, never a different commit.
+     */
+    public function branch(string $path, string $name): Branch;
 
     public function commit(string $path, string $commit): Commit;
 

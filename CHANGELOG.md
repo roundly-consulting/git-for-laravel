@@ -15,8 +15,17 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   fills `commits` and `totalCommits` but leaves `status` `null` (it cannot tell diverged from
   ahead), and a status GitHub has not documented is `null` too. The new constructor parameters
   come after `raw`, so positional `new Comparison(...)` calls keep working.
+- `repo(...)->branch($name)` returns one branch head (`Dto\Branch`: `name`, `sha`) by its exact
+  name, on GitHub, GitLab and Bitbucket (`Feature::FindBranch`). A tag, a sha or a prefix of a
+  branch name is the usual `404` `RequestException`, never another commit; GitHub reads
+  `/git/ref/heads/{branch}`, so a renamed branch is not followed to another head. An answer that
+  is not exactly that branch's head throws `UnexpectedValueException`. The fake answers
+  `seedBranch()`, by name.
 
 ### Changed
+
+- `Interfaces\Provider` gained `branch()`. A class implementing `Provider` directly must add it;
+  a driver extending `BaseProvider` (or one of the three drivers) changes nothing.
 
 - `Comparison::toArray()` gains the `status`, `totalCommits` and `commits` keys, and the fake's
   default comparison (nothing seeded) is now `status: identical`, `totalCommits: 0`.

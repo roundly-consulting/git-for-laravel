@@ -4,11 +4,13 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Providers;
 
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\LazyCollection;
 use InvalidArgumentException;
 use RoundlyConsulting\Git\Dto\Author;
+use RoundlyConsulting\Git\Dto\Branch;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Comparison;
@@ -43,6 +45,7 @@ use RoundlyConsulting\Git\Handles\PathGuard;
 use RoundlyConsulting\Git\Mapping\GitlabMapper;
 use RoundlyConsulting\Git\Mapping\ResourceMapper;
 use RoundlyConsulting\Git\Query\CommitQuery;
+use UnexpectedValueException;
 
 class Gitlab extends BaseProvider
 {
@@ -116,6 +119,28 @@ class Gitlab extends BaseProvider
             perPage: $perPage,
             map: fn (array $item): string => $item['name'],
         );
+    }
+
+    /**
+     * One branch head, by its exact name — the name sent as ONE encoded segment
+     * (`feature%2Fx`), as GitLab addresses it.
+     *
+     * @throws RequestException when there is no such branch
+     * @throws UnexpectedValueException when the answer carries no commit
+     */
+    public function branch(string $path, string $name): Branch
+    {
+        $this->guardSupported(Feature::FindBranch);
+
+        /** @var array<string, mixed> $branch */
+        $branch = $this->get('/api/v4/projects/'.$this->encode($path).'/repository/branches/'.$this->encodeWhole(PathGuard::ref('branch', $name)))->json();
+        $sha = is_array($branch['commit'] ?? null) ? ($branch['commit']['id'] ?? null) : null;
+
+        if (! is_string($sha) || $sha === '') {
+            throw new UnexpectedValueException("GitLab did not answer a head commit for branch [{$name}].");
+        }
+
+        return new Branch(provider: $this->providerName(), name: $name, sha: $sha, raw: $branch);
     }
 
     public function commits(string $path): CommitQuery
@@ -806,6 +831,7 @@ class Gitlab extends BaseProvider
             Feature::ListCommits,
             Feature::FindCommit,
             Feature::ListRepositoryBranches,
+            Feature::FindBranch,
             Feature::ListPullRequests,
             Feature::FindPullRequest,
             Feature::ListIssues,

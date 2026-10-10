@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Handles;
 
+use RoundlyConsulting\Git\Dto\Branch;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Comparison;
@@ -61,6 +62,17 @@ final readonly class RepositoryHandle
     public function branches(int $perPage = 30): Page
     {
         return $this->provider->branches($this->path, $perPage);
+    }
+
+    /**
+     * One branch head, by its EXACT name: a tag, a sha or a prefix of a branch name is a
+     * `404` `RequestException`, never another commit.
+     *
+     * @throws OutOfScopeException when the name could step outside the repository
+     */
+    public function branch(string $name): Branch
+    {
+        return $this->provider->branch($this->path, PathGuard::ref('branch', $name));
     }
 
     /** Create a branch; returns the new ref (`refs/heads/<name>`). */

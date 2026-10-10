@@ -16,6 +16,7 @@ enum Feature: string
     case ListCommits = 'commits';
     case FindCommit = 'commit';
     case ListRepositoryBranches = 'branches';
+    case FindBranch = 'branch';
     case ListPullRequests = 'pull_requests';
     case FindPullRequest = 'pull_request';
     case ListIssues = 'issues';
@@ -57,6 +58,7 @@ enum Feature: string
             self::ListCommits => 'List of all branch commits accessible by credentials.',
             self::FindCommit => 'Get details of specific commit by sha hash, accessible by credentials.',
             self::ListRepositoryBranches => 'List of all repository branches.',
+            self::FindBranch => 'Get the head commit of one branch, by its exact name.',
             self::ListPullRequests => 'List pull/merge requests for a repository.',
             self::FindPullRequest => 'Get a single pull/merge request by number.',
             self::ListIssues => 'List issues for a repository.',

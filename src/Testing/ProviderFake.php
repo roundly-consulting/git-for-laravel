@@ -13,6 +13,7 @@ use RoundlyConsulting\Git\Concerns\ProvidesHandles;
 use RoundlyConsulting\Git\Contracts\ListsWebhookEvents;
 use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
 use RoundlyConsulting\Git\Dto\Author;
+use RoundlyConsulting\Git\Dto\Branch;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Comparison;
@@ -167,6 +168,16 @@ final class ProviderFake implements ListsWebhookEvents, Provider
     public function seedBranches(array $branches): self
     {
         return $this->seed('branches', $branches);
+    }
+
+    /** One branch head `branch()` answers for its name; seed each branch a test reads. */
+    public function seedBranch(Branch $branch): self
+    {
+        /** @var array<string, Branch> $branches */
+        $branches = $this->seeds->values['branch'] ?? [];
+        $branches[$branch->name] = $branch;
+
+        return $this->seed('branch', $branches);
     }
 
     /** @param list<PullRequest> $pullRequests */
@@ -559,6 +570,19 @@ final class ProviderFake implements ListsWebhookEvents, Provider
         $this->record('branches', [$path, $perPage]);
 
         return $this->page($this->list('branches'), $size);
+    }
+
+    /** The branch seeded under that name — there is no honest default head. */
+    public function branch(string $path, string $name): Branch
+    {
+        $this->ensureSupported(Feature::FindBranch);
+
+        $this->record('branch', [$path, $name]);
+
+        /** @var array<string, Branch> $branches */
+        $branches = $this->seeds->values['branch'] ?? [];
+
+        return $branches[$name] ?? throw $this->unseeded("branch [{$name}]", 'seedBranch()');
     }
 
     public function commit(string $path, string $commit): Commit
