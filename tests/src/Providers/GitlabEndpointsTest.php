@@ -75,7 +75,11 @@ it('fetches decoded file contents', function () {
 
 it('compares two refs', function () {
     Http::fake(['*/repository/compare*' => Http::response([
-        'commits' => [['id' => 'a'], ['id' => 'b']],
+        // GitLab's compare commits are full commit objects; they are mapped since 1.2.
+        'commits' => [
+            ['id' => 'a', 'message' => 'one', 'author_name' => 'Jane', 'author_email' => 'j@e.x', 'authored_date' => '2026-01-01T00:00:00Z'],
+            ['id' => 'b', 'message' => 'two', 'author_name' => 'Jane', 'author_email' => 'j@e.x', 'authored_date' => '2026-01-02T00:00:00Z'],
+        ],
         'diffs' => [
             ['new_path' => 'a.php', 'new_file' => true],
             ['new_path' => 'b.php', 'deleted_file' => true],

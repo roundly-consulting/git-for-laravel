@@ -45,6 +45,7 @@ use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Enums\ComparisonStatus;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
@@ -700,6 +701,9 @@ final class ProviderFake implements ListsWebhookEvents, Provider
             aheadBy: 0,
             behindBy: 0,
             files: [],
+            status: ComparisonStatus::Identical,
+            totalCommits: 0,
+            commits: [],
         );
     }
 

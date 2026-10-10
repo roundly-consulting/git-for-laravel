@@ -6,6 +6,21 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Added
+
+- `Comparison` carries GitHub's own verdict and the commits: `status` (`Enums\ComparisonStatus`:
+  ahead, behind, identical, diverged), `totalCommits` and `commits` (`list<Commit>`, oldest
+  first), and `raw()` now holds the whole response. Unpaged, GitHub sends the newest 250 commits
+  and counts all of them, so `totalCommits > count($commits)` means the list was cut. GitLab
+  fills `commits` and `totalCommits` but leaves `status` `null` (it cannot tell diverged from
+  ahead), and a status GitHub has not documented is `null` too. The new constructor parameters
+  come after `raw`, so positional `new Comparison(...)` calls keep working.
+
+### Changed
+
+- `Comparison::toArray()` gains the `status`, `totalCommits` and `commits` keys, and the fake's
+  default comparison (nothing seeded) is now `status: identical`, `totalCommits: 0`.
+
 ## 1.1.4 - 2026-10-07
 
 ### Fixed

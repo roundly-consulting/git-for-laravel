@@ -322,10 +322,14 @@ class Gitlab extends BaseProvider
     {
         $this->guardSupported(Feature::Compare);
 
+        /** @var array<string, mixed> $data */
         $data = $this->get(
             '/api/v4/projects/'.$this->encode($path).'/repository/compare',
             ['from' => $base, 'to' => $head],
         )->json();
+
+        /** @var list<array<string, mixed>> $commits */
+        $commits = array_values(array_filter(is_array($data['commits'] ?? null) ? $data['commits'] : [], is_array(...)));
 
         /** @var list<ComparisonFile> $files */
         $files = array_map(fn (array $diff): ComparisonFile => new ComparisonFile(
@@ -335,12 +339,18 @@ class Gitlab extends BaseProvider
             deletions: 0,
         ), $data['diffs'] ?? []);
 
+        // No `status`: GitLab cannot tell diverged from ahead, and a forward-only guard must
+        // not read a guess. Unpaged, GitLab sends every commit, so the count is the total.
         return new Comparison(
             base: $base,
             head: $head,
-            aheadBy: count($data['commits'] ?? []),
+            aheadBy: count($commits),
             behindBy: 0,
             files: $files,
+            raw: $data,
+            status: null,
+            totalCommits: count($commits),
+            commits: array_map(fn (array $commit): Commit => $this->mapper()->commit($commit), $commits),
         );
     }
 

@@ -45,6 +45,7 @@ use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Enums\ComparisonStatus;
 use RoundlyConsulting\Git\Enums\Feature;
 use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
@@ -504,10 +505,18 @@ class Github extends BaseProvider
         );
     }
 
+    /**
+     * Compare two refs, unpaged.
+     *
+     * Unpaged, GitHub answers the NEWEST 250 commits (oldest first) and at most 300 files,
+     * while `total_commits` counts all of them — the caller reads truncation off
+     * `totalCommits > count($commits)`. A `status` GitHub has not documented maps to `null`.
+     */
     public function compare(string $path, string $base, string $head): Comparison
     {
         $this->guardSupported(Feature::Compare);
 
+        /** @var array<string, mixed> $data */
         $data = $this->get($this->repos($path).'/compare/'.$this->refSegments('base ref', $base).'...'.$this->refSegments('head ref', $head))->json();
 
         /** @var list<ComparisonFile> $files */
@@ -518,12 +527,22 @@ class Github extends BaseProvider
             deletions: (int) ($file['deletions'] ?? 0),
         ), $data['files'] ?? []);
 
+        $status = $data['status'] ?? null;
+        $total = $data['total_commits'] ?? null;
+
         return new Comparison(
             base: $base,
             head: $head,
             aheadBy: (int) ($data['ahead_by'] ?? 0),
             behindBy: (int) ($data['behind_by'] ?? 0),
             files: $files,
+            raw: $data,
+            status: is_string($status) ? ComparisonStatus::tryFrom($status) : null,
+            totalCommits: is_numeric($total) ? (int) $total : null,
+            commits: array_values(array_map(
+                fn (array $commit): Commit => $this->mapper()->commit($commit),
+                array_filter(is_array($data['commits'] ?? null) ? $data['commits'] : [], is_array(...)),
+            )),
         );
     }
 
