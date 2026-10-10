@@ -48,6 +48,15 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   finished (`409`). A dispatch is never retried, every workflow and run id is checked before a
   request, and dispatch and cancel need a credential. GitHub only (`Feature::DispatchWorkflow`,
   `ListWorkflowRuns`, `FindWorkflowRun`, `ListWorkflowJobs`, `CancelWorkflowRun`).
+- `Git::fake()` drives GitHub Actions honestly: `dispatch()` creates the queued run it reports
+  (the next numeric id), `runs()` applies the workflow and every filter newest first, `jobs()`
+  keeps the latest attempt unless asked for all or one, and `cancel()` is `false` for a run that
+  already completed. Seed with `seedWorkflowRuns()`, `seedWorkflowRun()` (an upsert by id — the
+  next poll's state), `seedWorkflowJobs()` and `seedDispatchWithoutRunDetails()` (GitHub
+  Enterprise Server's answer without a run id). New assertions on the fake and the facade:
+  `assertWorkflowDispatched($workflow, ?$ref, ?$inputs, ?$repository)` (inputs exact),
+  `assertNoWorkflowDispatched()`, `assertWorkflowRunCancelled($runId, ?$repository)` and
+  `assertNoWorkflowRunCancelled()`.
 
 ### Changed
 

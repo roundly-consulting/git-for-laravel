@@ -38,6 +38,10 @@ use RoundlyConsulting\Git\Testing\RecordedCall;
  * @method static void assertNotBatched(ProviderName $provider, string $method)
  * @method static void assertRepositoryCreated(string $name, ?string $owner = null, ?string $template = null)
  * @method static void assertNoRepositoryCreated()
+ * @method static void assertWorkflowDispatched(string $workflow, ?string $ref = null, ?array<string, string|int|float|bool> $inputs = null, ?string $repository = null)
+ * @method static void assertNoWorkflowDispatched()
+ * @method static void assertWorkflowRunCancelled(int|string $runId, ?string $repository = null)
+ * @method static void assertNoWorkflowRunCancelled()
  *
  * @see GitManager
  * @see GitFake

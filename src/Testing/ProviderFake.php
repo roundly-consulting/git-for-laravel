@@ -49,6 +49,7 @@ use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
 use RoundlyConsulting\Git\Dto\Webhook;
+use RoundlyConsulting\Git\Dto\WorkflowJob;
 use RoundlyConsulting\Git\Dto\WorkflowRun;
 use RoundlyConsulting\Git\Enums\ComparisonStatus;
 use RoundlyConsulting\Git\Enums\Feature;
@@ -56,6 +57,7 @@ use RoundlyConsulting\Git\Enums\MergeMethod;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Enums\ResourceState;
 use RoundlyConsulting\Git\Enums\ReviewEvent;
+use RoundlyConsulting\Git\Enums\WorkflowStatus;
 use RoundlyConsulting\Git\Exceptions\FeatureNotSupportedException;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\Handles\PathGuard;
@@ -195,6 +197,60 @@ final class ProviderFake implements ListsWebhookEvents, Provider
     public function seedActivity(array $activity): self
     {
         return $this->seed('activity', $activity);
+    }
+
+    /**
+     * The runs `runs()` and `run()` read — replacing any seeded or dispatched before.
+     *
+     * @param  list<WorkflowRun>  $runs
+     */
+    public function seedWorkflowRuns(array $runs): self
+    {
+        return $this->seed('workflowRuns', $runs);
+    }
+
+    /**
+     * One run, upserted by id — what the next `run()` poll reads, and how a test moves a
+     * dispatched run on (`in_progress`, then `completed`).
+     */
+    public function seedWorkflowRun(WorkflowRun $run): self
+    {
+        $runs = $this->workflowRunList();
+
+        foreach ($runs as $index => $seeded) {
+            if ($seeded->id === $run->id) {
+                $runs[$index] = $run;
+
+                return $this->seed('workflowRuns', $runs);
+            }
+        }
+
+        $runs[] = $run;
+
+        return $this->seed('workflowRuns', $runs);
+    }
+
+    /**
+     * The jobs of one run, across its attempts (`runAttempt`).
+     *
+     * @param  list<WorkflowJob>  $jobs
+     */
+    public function seedWorkflowJobs(int|string $runId, array $jobs): self
+    {
+        /** @var array<string, list<WorkflowJob>> $seeded */
+        $seeded = $this->seeds->values['workflowJobs'] ?? [];
+        $seeded[(string) $runId] = $jobs;
+
+        return $this->seed('workflowJobs', $seeded);
+    }
+
+    /**
+     * Answer `dispatch()` as GitHub Enterprise Server does — without the run it started — so
+     * a host can test finding the run with a `runs()` query. The run is still created.
+     */
+    public function seedDispatchWithoutRunDetails(): self
+    {
+        return $this->seed('dispatchWithoutRunDetails', true);
     }
 
     /** @param list<PullRequest> $pullRequests */
@@ -880,6 +936,17 @@ final class ProviderFake implements ListsWebhookEvents, Provider
         );
     }
 
+    /**
+     * A dispatch, answered like github.com: it CREATES the queued run it reports, so a host
+     * can drive dispatch → find → poll → cancel against the fake.
+     *
+     * The run's id is the largest numeric seeded id + 1 (1 on an empty fake); its `path` is
+     * `.github/workflows/<file>`, and the workflow id is borrowed from a seeded run of the
+     * same workflow ('' when none is seeded) — or the other way round for a workflow named by
+     * id. After {@see seedDispatchWithoutRunDetails()} the answer carries no run id, as on
+     * GitHub Enterprise Server, but the run is created all the same, so the fallback finder
+     * can be tested.
+     */
     public function dispatchWorkflow(string $path, NewWorkflowDispatch $data): DispatchedWorkflow
     {
         $this->ensureSupported(Feature::DispatchWorkflow);
@@ -889,29 +956,79 @@ final class ProviderFake implements ListsWebhookEvents, Provider
 
         $this->record('dispatchWorkflow', [$path, $data]);
 
+        $runs = $this->workflowRunList();
+        $id = (string) (max([0, ...array_map(
+            fn (WorkflowRun $run): int => (int) $run->id,
+            array_filter($runs, fn (WorkflowRun $run): bool => ctype_digit($run->id)),
+        )]) + 1);
+        $sibling = $this->firstRunOf($runs, $data->workflow);
+        $branch = preg_replace('#^refs/(heads|tags)/#', '', $data->ref) ?? $data->ref;
+        $url = "https://fake/{$path}/actions/runs/{$id}";
+
+        /** @var array<string, Branch> $branches */
+        $branches = $this->seeds->values['branch'] ?? [];
+
+        $this->seedWorkflowRun(new WorkflowRun(
+            provider: $this->name,
+            id: $id,
+            workflowId: ctype_digit($data->workflow) ? $data->workflow : ($sibling->workflowId ?? ''),
+            displayTitle: $data->workflow,
+            status: WorkflowStatus::Queued,
+            event: 'workflow_dispatch',
+            path: ctype_digit($data->workflow) ? ($sibling->path ?? '') : ".github/workflows/{$data->workflow}",
+            headSha: isset($branches[$branch]) ? $branches[$branch]->sha : 'fake-sha',
+            createdAt: $dispatchedAt,
+            updatedAt: $dispatchedAt,
+            headBranch: $branch,
+            headRepository: $path,
+            runNumber: max([0, ...array_map(
+                fn (WorkflowRun $run): int => $run->runNumber,
+                array_filter($runs, fn (WorkflowRun $run): bool => $this->runOfWorkflow($run, $data->workflow)),
+            )]) + 1,
+            url: $url,
+            // What GitHub reports for a run that has not started: its creation time.
+            runStartedAt: $dispatchedAt,
+        ));
+
+        $details = ! isset($this->seeds->values['dispatchWithoutRunDetails']);
+
         return new DispatchedWorkflow(
             provider: $this->name,
             workflow: $data->workflow,
             ref: $data->ref,
-            runId: null,
-            apiUrl: null,
-            url: null,
+            runId: $details ? $id : null,
+            apiUrl: $details ? "https://fake/repos/{$path}/actions/runs/{$id}" : null,
+            url: $details ? $url : null,
             dispatchedAt: $dispatchedAt,
         );
     }
 
+    /**
+     * The seeded runs, newest first, with every filter the real query sends APPLIED — an
+     * ignored filter would hand back another workflow's run in exactly the find-my-run flow
+     * this exists for. The workflow matches a run's `path` file (an `@ref` suffix dropped)
+     * or, given as a number, its `workflowId`; `status` matches a status or a conclusion, as
+     * on GitHub. `excludePullRequests()` shapes GitHub's payload only, so it filters nothing.
+     */
     public function workflowRuns(string $path, ?string $workflow = null): WorkflowRunQuery
     {
         $this->ensureSupported(Feature::ListWorkflowRuns);
 
         $this->record('workflowRuns', [$path, $workflow]);
 
-        return new WorkflowRunQuery(function (array $filters, int $page, int $perPage): Page {
+        return new WorkflowRunQuery(function (array $filters, int $page, int $perPage) use ($workflow): Page {
             $size = $this->pageSize($perPage);
 
             $this->record('workflowRuns.get', [$filters, $page, $perPage]);
 
-            return $this->page([], $size, $page);
+            $runs = array_values(array_filter(
+                $this->workflowRunList(),
+                fn (WorkflowRun $run): bool => ($workflow === null || $this->runOfWorkflow($run, $workflow)) && $this->runMatches($run, $filters),
+            ));
+
+            usort($runs, fn (WorkflowRun $a, WorkflowRun $b): int => ($b->createdAt <=> $a->createdAt) ?: ((int) $b->id <=> (int) $a->id));
+
+            return $this->page($runs, $size, $page, total: count($runs));
         });
     }
 
@@ -921,24 +1038,45 @@ final class ProviderFake implements ListsWebhookEvents, Provider
 
         $this->record('workflowRun', [$path, $id]);
 
-        throw $this->unseeded("workflow run [{$id}]", 'seedWorkflowRun()');
+        return $this->seededRun($id) ?? throw $this->unseeded("workflow run [{$id}]", 'seedWorkflowRun()');
     }
 
+    /**
+     * The jobs seeded for the run: of its latest attempt by default, of every attempt after
+     * `allAttempts()`, of one after `attempt($n)`.
+     */
     public function workflowJobs(string $path, string $runId): WorkflowJobQuery
     {
         $this->ensureSupported(Feature::ListWorkflowJobs);
 
         $this->record('workflowJobs', [$path, $runId]);
 
-        return new WorkflowJobQuery(function (array $filters, int $page, int $perPage): Page {
+        return new WorkflowJobQuery(function (array $filters, int $page, int $perPage) use ($runId): Page {
             $size = $this->pageSize($perPage);
 
             $this->record('workflowJobs.get', [$filters, $page, $perPage]);
 
-            return $this->page([], $size, $page);
+            /** @var array<string, list<WorkflowJob>> $seeded */
+            $seeded = $this->seeds->values['workflowJobs'] ?? [];
+            $jobs = $seeded[$runId] ?? [];
+
+            $attempt = match (true) {
+                isset($filters['attempt']) => (int) $filters['attempt'],
+                ($filters['filter'] ?? null) === 'all' => null,
+                default => max([0, ...array_map(fn (WorkflowJob $job): int => $job->runAttempt, $jobs)]),
+            };
+
+            $jobs = array_values(array_filter($jobs, fn (WorkflowJob $job): bool => $attempt === null || $job->runAttempt === $attempt));
+
+            return $this->page($jobs, $size, $page, total: count($jobs));
         });
     }
 
+    /**
+     * `false` when the seeded run already completed (GitHub's `409`), `true` otherwise. The
+     * seeds stay as they are — GitHub cancels asynchronously, so a test seeds the state the
+     * next poll reads with {@see seedWorkflowRun()}.
+     */
     public function cancelWorkflowRun(string $path, string $runId): bool
     {
         $this->ensureSupported(Feature::CancelWorkflowRun);
@@ -946,7 +1084,66 @@ final class ProviderFake implements ListsWebhookEvents, Provider
 
         $this->record('cancelWorkflowRun', [$path, $runId]);
 
-        return true;
+        return ! ($this->seededRun($runId)?->isCompleted() ?? false);
+    }
+
+    /** @return list<WorkflowRun> */
+    private function workflowRunList(): array
+    {
+        /** @var list<WorkflowRun> $runs */
+        $runs = $this->seeds->values['workflowRuns'] ?? [];
+
+        return $runs;
+    }
+
+    private function seededRun(string $id): ?WorkflowRun
+    {
+        foreach ($this->workflowRunList() as $run) {
+            if ($run->id === $id) {
+                return $run;
+            }
+        }
+
+        return null;
+    }
+
+    /** @param list<WorkflowRun> $runs */
+    private function firstRunOf(array $runs, string $workflow): ?WorkflowRun
+    {
+        foreach ($runs as $run) {
+            if ($this->runOfWorkflow($run, $workflow)) {
+                return $run;
+            }
+        }
+
+        return null;
+    }
+
+    /** Whether a run belongs to a workflow named by file (`deploy.yml`) or by numeric id. */
+    private function runOfWorkflow(WorkflowRun $run, string $workflow): bool
+    {
+        if (ctype_digit($workflow)) {
+            return $run->workflowId === $workflow;
+        }
+
+        // GitHub may report a reusable workflow's path with its ref: `…/deploy.yml@main`.
+        return basename(explode('@', $run->path, 2)[0]) === $workflow;
+    }
+
+    /** @param array<string, scalar> $filters */
+    private function runMatches(WorkflowRun $run, array $filters): bool
+    {
+        $after = $filters['createdAfter'] ?? null;
+        $before = $filters['createdBefore'] ?? null;
+        $status = $filters['status'] ?? null;
+
+        return (! isset($filters['branch']) || $run->headBranch === $filters['branch'])
+            && (! isset($filters['event']) || $run->event === $filters['event'])
+            && ($status === null || $run->status->value === $status || $run->conclusion?->value === $status)
+            && (! isset($filters['actor']) || $run->actor?->name === $filters['actor'])
+            && (! isset($filters['headSha']) || $run->headSha === $filters['headSha'])
+            && ($after === null || $run->createdAt->getTimestamp() >= Carbon::parse((string) $after)->getTimestamp())
+            && ($before === null || $run->createdAt->getTimestamp() <= Carbon::parse((string) $before)->getTimestamp());
     }
 
     public function createBranch(string $path, NewBranch $data): string
@@ -1424,13 +1621,14 @@ final class ProviderFake implements ListsWebhookEvents, Provider
      * @param  list<T>  $items
      * @return Page<T>
      */
-    private function page(array $items, int $perPage, int $page = 1): Page
+    private function page(array $items, int $perPage, int $page = 1, ?int $total = null): Page
     {
         return new Page(
             items: array_slice($items, max(0, $page - 1) * $perPage, $perPage),
             perPage: $perPage,
             page: $page,
             hasMore: count($items) > $page * $perPage,
+            total: $total,
         );
     }
 

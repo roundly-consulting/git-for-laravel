@@ -6,10 +6,12 @@ namespace RoundlyConsulting\Git\Testing;
 
 use Closure;
 use Illuminate\Contracts\Container\Container;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 use PHPUnit\Framework\Assert;
 use RoundlyConsulting\Git\Dto\Credentials\Credentials;
 use RoundlyConsulting\Git\Dto\Credentials\GithubApp;
+use RoundlyConsulting\Git\Dto\Input\NewWorkflowDispatch;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Exceptions\InvalidCredentialsException;
 use RoundlyConsulting\Git\GitManager;
@@ -226,6 +228,82 @@ final class GitFake extends GitManager
             ->contains(fn (RecordedCall $call): bool => $call->method === 'createRepository');
 
         Assert::assertFalse($created, 'Expected no repository to be created, but one was.');
+    }
+
+    /**
+     * A workflow was dispatched — optionally on a ref, with EXACTLY these inputs (any order,
+     * same types: a missing, extra or re-typed input is a different dispatch), or in one
+     * repository.
+     *
+     * @param  array<string, string|int|float|bool>|null  $inputs
+     */
+    public function assertWorkflowDispatched(string $workflow, ?string $ref = null, ?array $inputs = null, ?string $repository = null): void
+    {
+        $wanted = $inputs === null ? null : self::sorted($inputs);
+
+        $dispatched = $this->everyCall('dispatchWorkflow')->contains(function (RecordedCall $call) use ($workflow, $ref, $wanted, $repository): bool {
+            [$path, $data] = $call->arguments + [null, null];
+
+            return $data instanceof NewWorkflowDispatch
+                && $data->workflow === $workflow
+                && ($ref === null || $data->ref === $ref)
+                && ($wanted === null || self::sorted($data->inputs) === $wanted)
+                && ($repository === null || $path === $repository);
+        });
+
+        $detail = $ref !== null ? " on [{$ref}]" : '';
+        $detail .= $inputs !== null ? ' with inputs '.json_encode($inputs) : '';
+        $detail .= $repository !== null ? " in [{$repository}]" : '';
+
+        Assert::assertTrue($dispatched, "Expected workflow [{$workflow}]{$detail} to be dispatched, but it was not.");
+    }
+
+    public function assertNoWorkflowDispatched(): void
+    {
+        Assert::assertTrue($this->everyCall('dispatchWorkflow')->isEmpty(), 'Expected no workflow to be dispatched, but one was.');
+    }
+
+    /** A run was asked to cancel — optionally in one repository. */
+    public function assertWorkflowRunCancelled(int|string $runId, ?string $repository = null): void
+    {
+        $cancelled = $this->everyCall('cancelWorkflowRun')->contains(function (RecordedCall $call) use ($runId, $repository): bool {
+            [$path, $id] = $call->arguments + [null, null];
+
+            return $id === (string) $runId && ($repository === null || $path === $repository);
+        });
+
+        $detail = $repository !== null ? " in [{$repository}]" : '';
+
+        Assert::assertTrue($cancelled, "Expected workflow run [{$runId}]{$detail} to be cancelled, but it was not.");
+    }
+
+    public function assertNoWorkflowRunCancelled(): void
+    {
+        Assert::assertTrue($this->everyCall('cancelWorkflowRun')->isEmpty(), 'Expected no workflow run to be cancelled, but one was.');
+    }
+
+    /**
+     * Every recorded call of one method, across all providers.
+     *
+     * @return Collection<int, RecordedCall>
+     */
+    private function everyCall(string $method): Collection
+    {
+        /** @var Collection<int, RecordedCall> $calls */
+        $calls = collect($this->calls)->flatten(1)->filter(fn (RecordedCall $call): bool => $call->method === $method)->values();
+
+        return $calls;
+    }
+
+    /**
+     * @param  array<string, string|int|float|bool>  $inputs
+     * @return array<string, string|int|float|bool>
+     */
+    private static function sorted(array $inputs): array
+    {
+        ksort($inputs);
+
+        return $inputs;
     }
 
     /**
