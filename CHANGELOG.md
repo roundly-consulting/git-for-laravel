@@ -6,6 +6,8 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+## 1.2.0 - 2026-10-10
+
 ### Added
 
 - `Comparison` carries GitHub's own verdict and the commits: `status` (`Enums\ComparisonStatus`:
