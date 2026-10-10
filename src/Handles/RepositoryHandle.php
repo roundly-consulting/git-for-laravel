@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace RoundlyConsulting\Git\Handles;
 
+use RoundlyConsulting\Git\Dto\Activity;
 use RoundlyConsulting\Git\Dto\Branch;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
@@ -193,6 +194,19 @@ final readonly class RepositoryHandle
     public function contributors(int $perPage = 30): Page
     {
         return $this->provider->contributors($this->path, $perPage);
+    }
+
+    /**
+     * The repository's activity feed, newest first — pushes, force pushes, branch creations
+     * and deletions, merges — optionally for one ref (`main` or `refs/heads/main`). GitHub only.
+     *
+     * Cursor-paged: hand the page's `nextCursor` back as `$cursor` for the next one.
+     *
+     * @return Page<Activity>
+     */
+    public function activity(?string $ref = null, int $perPage = 30, ?string $cursor = null): Page
+    {
+        return $this->provider->activity($this->path, $ref, $perPage, $cursor);
     }
 
     /** @return array<string, int> */

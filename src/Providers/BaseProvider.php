@@ -22,6 +22,7 @@ use RoundlyConsulting\Git\Concerns\InteractsWithRateLimits;
 use RoundlyConsulting\Git\Concerns\ProvidesHandles;
 use RoundlyConsulting\Git\Contracts\ListsWebhookEvents;
 use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
+use RoundlyConsulting\Git\Dto\Activity;
 use RoundlyConsulting\Git\Dto\Branch;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
@@ -425,6 +426,12 @@ abstract class BaseProvider implements ListsWebhookEvents, Provider
 
     /** @return Page<Contributor> */
     public function contributors(string $path, int $perPage = 30): Page
+    {
+        $this->featureNotSupported();
+    }
+
+    /** @return Page<Activity> */
+    public function activity(string $path, ?string $ref = null, int $perPage = 30, ?string $cursor = null): Page
     {
         $this->featureNotSupported();
     }

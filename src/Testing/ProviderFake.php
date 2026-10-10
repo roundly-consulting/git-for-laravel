@@ -12,6 +12,7 @@ use RoundlyConsulting\Git\Batch\BatchResult;
 use RoundlyConsulting\Git\Concerns\ProvidesHandles;
 use RoundlyConsulting\Git\Contracts\ListsWebhookEvents;
 use RoundlyConsulting\Git\Contracts\RefreshableCredentials;
+use RoundlyConsulting\Git\Dto\Activity;
 use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Branch;
 use RoundlyConsulting\Git\Dto\Comment;
@@ -178,6 +179,17 @@ final class ProviderFake implements ListsWebhookEvents, Provider
         $branches[$branch->name] = $branch;
 
         return $this->seed('branch', $branches);
+    }
+
+    /**
+     * What `activity()` pages through — in the order given, so seed it newest first, as
+     * GitHub sends it.
+     *
+     * @param  list<Activity>  $activity
+     */
+    public function seedActivity(array $activity): self
+    {
+        return $this->seed('activity', $activity);
     }
 
     /** @param list<PullRequest> $pullRequests */
@@ -741,6 +753,57 @@ final class ProviderFake implements ListsWebhookEvents, Provider
         $this->record('contributors', [$path, $perPage]);
 
         return $this->page($this->list('contributors'), $size);
+    }
+
+    /**
+     * The seeded activity for the ref (`main` reads as `refs/heads/main`, as on GitHub),
+     * paged by an opaque cursor this fake hands out (`fake:<offset>`).
+     *
+     * @return Page<Activity>
+     *
+     * @throws InvalidArgumentException for a cursor this fake never handed out
+     */
+    public function activity(string $path, ?string $ref = null, int $perPage = 30, ?string $cursor = null): Page
+    {
+        $this->ensureSupported(Feature::RepositoryActivity);
+
+        $size = $this->pageSize($perPage);
+        $offset = 0;
+
+        if ($cursor !== null) {
+            if (preg_match('/^fake:(\d+)$/', $cursor, $match) !== 1) {
+                throw new InvalidArgumentException("[{$cursor}] is not a cursor the fake handed out; pass a page's nextCursor back.");
+            }
+
+            $offset = (int) $match[1];
+        }
+
+        $this->record('activity', [$path, $ref, $perPage, $cursor]);
+
+        $wanted = $ref === null ? null : $this->fullRef($ref);
+
+        /** @var list<Activity> $seeded */
+        $seeded = $this->list('activity');
+        $matching = array_values(array_filter(
+            $seeded,
+            fn (Activity $activity): bool => $wanted === null || $this->fullRef($activity->ref) === $wanted,
+        ));
+
+        $more = count($matching) > $offset + $size;
+
+        return new Page(
+            items: array_slice($matching, $offset, $size),
+            perPage: $size,
+            page: 1,
+            hasMore: $more,
+            nextCursor: $more ? 'fake:'.($offset + $size) : null,
+        );
+    }
+
+    /** `main` as GitHub reads it in a ref filter: `refs/heads/main`. */
+    private function fullRef(string $ref): string
+    {
+        return str_starts_with($ref, 'refs/') ? $ref : "refs/heads/{$ref}";
     }
 
     /** @return array<string, int> */

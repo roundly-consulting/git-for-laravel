@@ -49,6 +49,7 @@ enum Feature: string
     case FindInstallation = 'installation';
     case ListInstallations = 'installations';
     case ListInstallationRepositories = 'installation_repositories';
+    case RepositoryActivity = 'activity';
 
     public function description(): string
     {
@@ -91,6 +92,7 @@ enum Feature: string
             self::FindInstallation => 'Get a single app installation (authenticated as the app itself).',
             self::ListInstallations => 'List every account this app is installed on (authenticated as the app itself).',
             self::ListInstallationRepositories => 'List the repositories one installation can reach.',
+            self::RepositoryActivity => 'List the pushes, force pushes, branch creations and deletions, and merges on a repository, newest first.',
         };
     }
 

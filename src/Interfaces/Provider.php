@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Git\Interfaces;
 
 use Illuminate\Support\LazyCollection;
 use RoundlyConsulting\Git\Batch\Batch;
+use RoundlyConsulting\Git\Dto\Activity;
 use RoundlyConsulting\Git\Dto\Branch;
 use RoundlyConsulting\Git\Dto\Comment;
 use RoundlyConsulting\Git\Dto\Commit;
@@ -161,6 +162,16 @@ interface Provider
 
     /** @return Page<Contributor> */
     public function contributors(string $path, int $perPage = 30): Page;
+
+    /**
+     * The repository's activity feed, newest first, optionally for one ref (`main` or
+     * `refs/heads/main`).
+     *
+     * Cursor-paged: pass the previous page's `nextCursor` back as `$cursor` for the next one.
+     *
+     * @return Page<Activity>
+     */
+    public function activity(string $path, ?string $ref = null, int $perPage = 30, ?string $cursor = null): Page;
 
     /** @return array<string, int> */
     public function languages(string $path): array;

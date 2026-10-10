@@ -9,6 +9,7 @@ use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\LazyCollection;
+use RoundlyConsulting\Git\Dto\Activity;
 use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Branch;
 use RoundlyConsulting\Git\Dto\Comment;
@@ -596,6 +597,63 @@ class Github extends BaseProvider
                 contributions: (int) ($c['contributions'] ?? 0),
             ),
         );
+    }
+
+    /**
+     * The repository's activity feed, newest first (GitHub's default direction).
+     *
+     * Cursor-paged: GitHub takes no `page` here, only the `before` / `after` cursors its
+     * `Link` header hands out, so the page carries `nextCursor` (the `after` of
+     * `rel="next"`) and `page` is always 1. A `403` / `404` — an installation that may not
+     * read it — stays the `RequestException` it is, for the caller to fall back on.
+     *
+     * @return Page<Activity>
+     */
+    public function activity(string $path, ?string $ref = null, int $perPage = 30, ?string $cursor = null): Page
+    {
+        $this->guardSupported(Feature::RepositoryActivity);
+
+        $perPage = $this->pageSize($perPage);
+
+        $response = $this->get($this->repos($path).'/activity', array_filter([
+            'ref' => $ref,
+            'per_page' => $perPage,
+            'after' => $cursor,
+        ], fn (mixed $value): bool => $value !== null && $value !== ''));
+
+        /** @var list<Activity> $items */
+        $items = $response->collect()
+            ->map(fn (array $activity): Activity => $this->mapper()->activity($activity))
+            ->values()
+            ->all();
+
+        $next = $this->nextLinkQuery($response)['after'] ?? null;
+
+        return new Page(
+            items: $items,
+            perPage: $perPage,
+            page: 1,
+            hasMore: $next !== null,
+            nextCursor: is_string($next) && $next !== '' ? $next : null,
+        );
+    }
+
+    /**
+     * The query string of the `Link: rel="next"` URL, decoded — `[]` without one.
+     *
+     * @return array<array-key, mixed>
+     */
+    private function nextLinkQuery(Response $response): array
+    {
+        foreach (explode(',', $response->header('Link')) as $link) {
+            if (preg_match('/<([^>]*)>\s*;[^,]*\brel="?next"?/i', $link, $match) === 1) {
+                parse_str((string) parse_url($match[1], PHP_URL_QUERY), $query);
+
+                return $query;
+            }
+        }
+
+        return [];
     }
 
     /** @return array<string, int> */
@@ -1210,6 +1268,7 @@ class Github extends BaseProvider
             Feature::FindInstallation,
             Feature::ListInstallations,
             Feature::ListInstallationRepositories,
+            Feature::RepositoryActivity,
         ];
     }
 

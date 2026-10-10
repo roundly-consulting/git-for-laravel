@@ -21,11 +21,20 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   `/git/ref/heads/{branch}`, so a renamed branch is not followed to another head. An answer that
   is not exactly that branch's head throws `UnexpectedValueException`. The fake answers
   `seedBranch()`, by name.
+- `repo(...)->activity(?$ref, $perPage, ?$cursor)` reads GitHub's repository activity feed,
+  newest first: a `Page<Dto\Activity>` (`type` as `Enums\ActivityType` — push, force push,
+  branch creation and deletion, pull request and merge queue merges — `ref`, `before`, `after`,
+  `actor`, `occurredAt`), optionally for one ref (`main` or `refs/heads/main`). It is
+  cursor-paged: hand the page's `nextCursor` back as `$cursor`. An all-zero `before` / `after`
+  (a creation or deletion) is `null`, a type GitHub adds later is `ActivityType::Unknown`, and a
+  `403` / `404` stays a `RequestException`. GitHub only (`Feature::RepositoryActivity`); the
+  fake pages `seedActivity()` filtered by ref.
 
 ### Changed
 
-- `Interfaces\Provider` gained `branch()`. A class implementing `Provider` directly must add it;
-  a driver extending `BaseProvider` (or one of the three drivers) changes nothing.
+- `Interfaces\Provider` gained `branch()` and `activity()`. A class implementing `Provider`
+  directly must add them; a driver extending `BaseProvider` (or one of the three drivers)
+  changes nothing.
 
 - `Comparison::toArray()` gains the `status`, `totalCommits` and `commits` keys, and the fake's
   default comparison (nothing seeded) is now `status: identical`, `totalCommits: 0`.

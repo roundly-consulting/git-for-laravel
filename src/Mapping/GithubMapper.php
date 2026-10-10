@@ -6,6 +6,7 @@ namespace RoundlyConsulting\Git\Mapping;
 
 use Illuminate\Support\Carbon;
 use InvalidArgumentException;
+use RoundlyConsulting\Git\Dto\Activity;
 use RoundlyConsulting\Git\Dto\Author;
 use RoundlyConsulting\Git\Dto\Commit;
 use RoundlyConsulting\Git\Dto\Installation;
@@ -17,6 +18,7 @@ use RoundlyConsulting\Git\Dto\PullRequestReviewComment;
 use RoundlyConsulting\Git\Dto\Release;
 use RoundlyConsulting\Git\Dto\Repository;
 use RoundlyConsulting\Git\Dto\Tag;
+use RoundlyConsulting\Git\Enums\ActivityType;
 use RoundlyConsulting\Git\Enums\DiffSide;
 use RoundlyConsulting\Git\Enums\ProviderName;
 use RoundlyConsulting\Git\Enums\ResourceState;
@@ -102,6 +104,77 @@ final class GithubMapper implements ResourceMapper
             // date into "this installation is fine". Unknown-but-present means suspended.
             suspendedAt: $this->suspendedAt($suspendedAt),
             raw: $raw,
+        );
+    }
+
+    /**
+     * One entry of a repository's activity feed.
+     *
+     * GitHub-only, so it is NOT on the shared ResourceMapper contract. An all-zero
+     * `before` / `after` (a branch creation / deletion) names no commit and maps to null.
+     *
+     * @param  array<string, mixed>  $raw
+     *
+     * @throws InvalidArgumentException when the payload carries no usable id or timestamp
+     */
+    public function activity(array $raw): Activity
+    {
+        $type = $raw['activity_type'] ?? null;
+        $ref = $raw['ref'] ?? null;
+
+        return new Activity(
+            provider: $this->provider(),
+            id: $this->requiredId($raw, 'id', 'activity'),
+            type: (is_string($type) ? ActivityType::tryFrom($type) : null) ?? ActivityType::Unknown,
+            ref: is_string($ref) ? $ref : '',
+            before: $this->commitOrNull($raw['before'] ?? null),
+            after: $this->commitOrNull($raw['after'] ?? null),
+            actor: $this->owner($raw['actor'] ?? null),
+            occurredAt: $this->timestamp($raw['timestamp'] ?? null)
+                ?? throw new InvalidArgumentException('A GitHub activity payload carried no usable [timestamp].'),
+            raw: $raw,
+        );
+    }
+
+    /**
+     * A forge-issued id as a string, or a refusal naming the field — never a made-up `0`.
+     *
+     * @param  array<string, mixed>  $raw
+     *
+     * @throws InvalidArgumentException
+     */
+    private function requiredId(array $raw, string $field, string $resource): string
+    {
+        $id = $raw[$field] ?? null;
+
+        if (is_int($id) || (is_string($id) && $id !== '')) {
+            return (string) $id;
+        }
+
+        throw new InvalidArgumentException("A GitHub {$resource} payload carried no usable [{$field}].");
+    }
+
+    /** A sha, or null for an absent one or GitHub's all-zero "no commit". */
+    private function commitOrNull(mixed $sha): ?string
+    {
+        return is_string($sha) && $sha !== '' && trim($sha, '0') !== '' ? $sha : null;
+    }
+
+    /** A GitHub user, or null when the payload names nobody. */
+    private function owner(mixed $user): ?Owner
+    {
+        if (! is_array($user) || ! is_string($user['login'] ?? null) || $user['login'] === '') {
+            return null;
+        }
+
+        $id = $user['id'] ?? null;
+        $avatar = $user['avatar_url'] ?? null;
+
+        return new Owner(
+            id: is_int($id) || is_string($id) ? (string) $id : '',
+            name: $user['login'],
+            avatar: is_string($avatar) ? $avatar : null,
+            raw: $user,
         );
     }
 
