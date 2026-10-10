@@ -1196,6 +1196,10 @@ abstract class BaseProvider implements ListsWebhookEvents, Provider
     /**
      * Send a write request (POST/PUT/PATCH/DELETE) through the shared client.
      *
+     * An empty payload sends no body at all: PHP's `[]` would go out as a JSON ARRAY, which
+     * GitHub refuses where an object or nothing is expected (`422 "[] is not an object or
+     * null"` on cancelling a workflow run).
+     *
      * @param  array<string, mixed>  $payload
      */
     protected function send(string $method, string $url, array $payload = []): Response
@@ -1203,7 +1207,7 @@ abstract class BaseProvider implements ListsWebhookEvents, Provider
         $start = microtime(true);
         $response = $this->throttled(
             $this->key(),
-            fn (): Response => $this->client(read: false)->send($method, $url, ['json' => $payload]),
+            fn (): Response => $this->client(read: false)->send($method, $url, $payload === [] ? [] : ['json' => $payload]),
         );
         $this->log($method, $url, $response->status(), $start);
         $this->captureRateLimit($response);

@@ -74,6 +74,8 @@ All notable changes to `git-for-laravel` are documented in this file. The format
   `commits`; `PullRequest` `headSha` and `headRepository`; `Repository` `private`, `language` and
   `webUrl`. The fake's default comparison (nothing seeded) is now `status: identical`,
   `totalCommits: 0`, and the repository `createRepository()` synthesizes carries `private`.
+- A write with no payload (cancelling a workflow run, deleting a webhook) now sends no request
+  body instead of a JSON `[]`, which GitHub refuses where it expects an object or nothing.
 - GitLab compare `commits` are now mapped through the commit mapper, so a compare answer whose
   commits lack GitLab's usual commit fields (`message`, `author_name`, `author_email`) now fails
   to map instead of being only counted.

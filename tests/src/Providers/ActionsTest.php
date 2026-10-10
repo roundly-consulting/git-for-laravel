@@ -272,6 +272,16 @@ describe('cancel()', function (): void {
         Http::assertSent(fn (Request $request): bool => $request->method() === 'POST' && str_ends_with($request->url(), '/actions/runs/7/cancel'));
     });
 
+    it('sends no body at all, never a json array github refuses', function (): void {
+        // Found by the live check: an empty payload went out as `[]`, which GitHub answers
+        // `422 "[] is not an object or null"` on the cancel endpoint.
+        Http::fake(['*' => Http::response([], 202)]);
+
+        github()->repo('o/r')->actions()->cancel(7);
+
+        Http::assertSent(fn (Request $request): bool => $request->method() === 'POST' && $request->body() === '');
+    });
+
     it('answers a run that already finished (409) as false', function (): void {
         Http::fake(['*' => Http::response(['message' => 'Cannot cancel a workflow run that is completed.'], 409)]);
 
