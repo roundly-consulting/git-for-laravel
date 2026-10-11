@@ -6,6 +6,11 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Changed
+
+- Maintenance: requires the latest roundly packages — crypto `^1.1.2`, enums `^1.1.0`,
+  http-client-rate-limits `^1.1.0`, package-toolkit `^1.3.0`; dev: testing `^1.2.1`.
+
 ## 1.2.0 - 2026-10-10
 
 ### Added
