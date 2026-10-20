@@ -117,6 +117,35 @@ it('keeps the webhook route off for an unset or blank switch, agreeing with url(
     expect(Artisan::output())->toMatch('/Webhooks\s*\.+\s*OFF/');
 })->with(['absent' => null, 'empty' => '', 'whitespace' => ' ']);
 
+it('keeps the webhook route off when its switch is not set (strict config)', function (string $shape): void {
+    match ($shape) {
+        // A host config that overrides only part of `webhooks`: the merge is shallow, so the key is gone.
+        'a published webhooks array without the switch' => config()->set('git.webhooks', ['path' => 'hooks', 'middleware' => []]),
+        'null' => config()->set('git.webhooks.enabled', null),
+        'a blank env value' => config()->set('git.webhooks.enabled', ''),
+        'a bare env() with the variable unset' => config()->set('git.webhooks.enabled', env('GIT_WEBHOOKS_NEVER_SET_IN_TESTS')),
+    };
+
+    expect(strictBootsWebhookRoute())->toBeFalse();
+
+    Artisan::call('about', ['--only' => 'git']);
+
+    expect(Artisan::output())->toMatch('/Webhooks\s*\.+\s*OFF/');
+})->with(['a published webhooks array without the switch', 'null', 'a blank env value', 'a bare env() with the variable unset']);
+
+it('still loads the webhook route for an explicit on switch (strict config)', function (bool|string $on): void {
+    config()->set('git.webhooks', ['enabled' => $on, 'path' => 'hooks', 'middleware' => []]);
+
+    expect(strictBootsWebhookRoute())->toBeTrue()
+        ->and(app('router')->getRoutes()->getByName('git.webhooks')?->uri())->toBe('hooks/{provider}');
+})->with(['true' => true, 'on' => 'on', '1' => '1']);
+
+it('still keeps the webhook route off for an explicit off switch (strict config)', function (bool|string $off): void {
+    config()->set('git.webhooks', ['enabled' => $off, 'path' => 'hooks', 'middleware' => []]);
+
+    expect(strictBootsWebhookRoute())->toBeFalse();
+})->with(['false' => false, 'off' => 'off', '0' => '0']);
+
 it('refuses a non-string webhook path instead of mounting at the root (strict config)', function (mixed $path): void {
     config()->set('git.webhooks.enabled', true);
     config()->set('git.webhooks.path', $path);
