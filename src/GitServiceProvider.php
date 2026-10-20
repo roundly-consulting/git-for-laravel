@@ -27,7 +27,10 @@ final class GitServiceProvider extends PackageServiceProvider
         $package
             ->name('git')
             ->hasConfigFile()
-            ->hasRoutes('git-webhooks.php', 'git.webhooks.enabled')
+            // Opt-in: a switch that is not set (missing from a published config whose `webhooks`
+            // merge is shallow, `null`, blank, a bare `env()` unset) keeps the route off, agreeing
+            // with `Webhooks::register()` and `about`.
+            ->hasRoutes('git-webhooks.php', 'git.webhooks.enabled', enabledByDefault: false)
             ->hasCommands([
                 ReposCommand::class,
                 RateLimitCommand::class,
@@ -42,20 +45,6 @@ final class GitServiceProvider extends PackageServiceProvider
                     : 'OFF',
                 'Conditional caching' => Config::boolean('git.cache.enabled') ? 'ON' : 'OFF',
             ]);
-    }
-
-    public function boot(): void
-    {
-        // The toolkit's route switch reads an unset key as ON, while git's documented default
-        // is OFF — and `Webhooks::register()` and `about` read it as OFF. Pin an unset switch
-        // (`GIT_WEBHOOKS_ENABLED=null`, a blank `GIT_WEBHOOKS_ENABLED=`, or a published config
-        // without the key) to that default before the routes load, so the route, the derived
-        // URL and `about` all agree.
-        if (Settings::isUnset(config('git.webhooks.enabled'))) {
-            config()->set('git.webhooks.enabled', false);
-        }
-
-        parent::boot();
     }
 
     public function register(): void

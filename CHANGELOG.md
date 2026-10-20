@@ -6,6 +6,11 @@ All notable changes to `git-for-laravel` are documented in this file. The format
 
 ## Unreleased
 
+### Changed
+
+- Maintenance: requires package-toolkit `^1.4.0`; the opt-in webhook route's off-by-default
+  switch now uses the toolkit's `enabledByDefault` (behaviour unchanged).
+
 ## 1.2.1 - 2026-10-11
 
 ### Changed
